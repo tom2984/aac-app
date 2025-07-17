@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Image, ImageBackground, Pressable, Text, TextInput, View } from 'react-native';
-import { supabase, testSupabaseConnection } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
@@ -21,40 +21,17 @@ const LoginScreen = () => {
 
     setLoading(true);
     try {
-      console.log('🔐 Attempting login with:', email);
-      
-      // First test basic connectivity
-      console.log('🔍 Testing connectivity before login...');
-      const connectionTest = await testSupabaseConnection();
-      
-      if (!connectionTest.success) {
-        console.error('❌ Connection test failed:', connectionTest.error);
-        Alert.alert(
-          'Connection Error',
-          `Unable to connect to authentication service: ${connectionTest.error}`
-        );
-        return;
-      }
-      
-      console.log('✅ Connection test passed, proceeding with login...');
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password: password,
       });
 
-      console.log('📊 Login result:', { data, error });
-
       if (error) {
-        console.error('❌ Login error:', error);
         Alert.alert('Login Error', error.message);
       } else {
-        console.log('✅ Login successful');
-        // Login successful, navigate to dashboard
-    router.replace('/dashboard');
+        router.replace('/dashboard');
       }
     } catch (error) {
-      console.error('💥 Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
@@ -100,7 +77,7 @@ const LoginScreen = () => {
         );
       }
     } catch (error) {
-      console.error('💥 Unexpected signup error:', error);
+
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);

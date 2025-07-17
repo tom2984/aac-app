@@ -15,16 +15,7 @@ const rawSupabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
 const supabaseUrl = rawSupabaseUrl?.trim()
 const supabaseAnonKey = rawSupabaseAnonKey?.trim()
 
-// Debug logging
-console.log('🔍 Supabase Environment Check:')
-console.log('📍 URL:', supabaseUrl ? 'Found' : 'Missing')
-console.log('🔑 Key:', supabaseAnonKey ? 'Found' : 'Missing')
-console.log('🌐 Raw URL:', rawSupabaseUrl)
-console.log('🌐 Clean URL:', supabaseUrl)
-console.log('🗝️ Key Preview:', supabaseAnonKey ? supabaseAnonKey.substring(0, 20) + '...' : 'N/A')
-
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('❌ Missing Supabase environment variables')
   throw new Error('Missing Supabase environment variables')
 }
 
@@ -32,62 +23,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
 try {
   new URL(supabaseUrl)
 } catch (urlError) {
-  console.error('❌ Invalid Supabase URL format:', supabaseUrl)
-  console.error('❌ URL Error:', urlError)
   throw new Error(`Invalid Supabase URL format: ${supabaseUrl}`)
 }
 
 // Create and export the Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-console.log('✅ Supabase client created successfully')
 
-// Test basic connectivity function
-export const testSupabaseConnection = async () => {
-  try {
-    console.log('🔍 Testing basic Supabase connectivity...')
-    
-    // Test 1: Basic health check
-    const response = await fetch(`${supabaseUrl}/rest/v1/`, {
-      method: 'GET',
-      headers: {
-        'apikey': supabaseAnonKey,
-        'Content-Type': 'application/json'
-      }
-    })
-    
-    console.log('🌐 Network Response Status:', response.status)
-    console.log('🌐 Network Response OK:', response.ok)
-    
-    if (!response.ok) {
-      console.error('❌ Network response not OK:', response.statusText)
-      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` }
-    }
-    
-    // Test 2: Try a simple Supabase query
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('count')
-      .limit(1)
-    
-    console.log('📊 Query Result:', { data, error })
-    
-    if (error) {
-      console.error('❌ Query error:', error)
-      return { success: false, error: error.message }
-    }
-    
-    console.log('✅ Connection test successful!')
-    return { success: true, data }
-    
-  } catch (error) {
-    console.error('💥 Connection test failed:', error)
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    }
-  }
-}
 
 // Database type definitions matching the actual schema
 export type Database = {
@@ -361,7 +303,7 @@ export type FormUpdate = Database['public']['Tables']['forms']['Update']
 // Dashboard data fetching functions
 export const fetchAssignedForms = async (userId: string) => {
   try {
-    console.log('🔍 Fetching assigned forms for user:', userId);
+
     
     // Step 1: Fetch form assignments with forms and questions (without problematic foreign key)
     const { data: assignments, error: assignmentError } = await supabase
@@ -381,11 +323,10 @@ export const fetchAssignedForms = async (userId: string) => {
       return { data: null, error: assignmentError };
     }
 
-    console.log('✅ Successfully fetched form assignments:', assignments?.length || 0);
-    console.log('📊 Sample assignment:', assignments?.[0]);
+
 
     if (!assignments || assignments.length === 0) {
-      console.log('ℹ️ No form assignments found for user');
+
       return { data: [], error: null };
     }
 
@@ -415,12 +356,7 @@ export const fetchAssignedForms = async (userId: string) => {
       const creatorId = assignment.forms?.created_by;
       const creator = creatorId ? creatorProfiles[creatorId] : null;
       
-      console.log('🔍 Processing assignment:', {
-        formTitle: assignment.forms?.title,
-        createdBy: creatorId,
-        creatorProfile: creator,
-        creatorName: creator ? `${creator.first_name || ''} ${creator.last_name || ''}`.trim() || creator.email || 'Unknown' : 'No creator found'
-      });
+
 
       return {
         ...assignment,
@@ -428,12 +364,7 @@ export const fetchAssignedForms = async (userId: string) => {
       };
     });
 
-    console.log('📋 FINAL CREATOR DEBUG - Combined data summary:');
-    combinedData.forEach((item, index) => {
-      console.log(`📝 Form ${index + 1}: "${item.forms?.title}" created by ${item.profiles ? `${item.profiles.first_name || ''} ${item.profiles.last_name || ''}`.trim() || item.profiles.email || 'Unknown' : 'Unknown'}`);
-    });
 
-    console.log('🎯 Final filtered data:', combinedData.length, 'active forms');
     return { data: combinedData as AssignedForm[], error: null };
 
   } catch (error) {
@@ -878,407 +809,8 @@ export type FormTeammate = {
   dueDate: string | null;
 };
 
-// Debug function for form creator and teammate issues
-export const debugFormIssues = async (formTitle: string = 'Vercel test') => {
-  try {
-    console.log('🔍 DEBUG: Starting form issues diagnosis for:', formTitle);
-    
-    // 1. Find the form by title
-    const { data: forms, error: formsError } = await supabase
-      .from('forms')
-      .select('*')
-      .ilike('title', `%${formTitle}%`);
-    
-    if (formsError) {
-      console.error('❌ Error finding forms:', formsError);
-      return;
-    }
-    
-    console.log('📋 Found forms:', forms?.map(f => ({ id: f.id, title: f.title, created_by: f.created_by })));
-    
-    if (!forms || forms.length === 0) {
-      console.log('❌ No forms found with title containing:', formTitle);
-      return;
-    }
-    
-    const targetForm = forms[0];
-    console.log('🎯 Using form:', targetForm);
-    
-    // 2. Check creator profile
-    if (targetForm.created_by) {
-      const { data: creator, error: creatorError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', targetForm.created_by)
-        .single();
-      
-      if (creatorError) {
-        console.error('❌ Creator profile error:', creatorError);
-      } else {
-        console.log('✅ Creator found:', {
-          id: creator.id,
-          name: `${creator.first_name || ''} ${creator.last_name || ''}`.trim(),
-          email: creator.email
-        });
-      }
-    } else {
-      console.log('⚠️ Form has no created_by field');
-    }
-    
-    // 3. Check all assignments for this form
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from('form_assignments')
-      .select('*')
-      .eq('form_id', targetForm.id);
-    
-    if (assignmentsError) {
-      console.error('❌ Assignments error:', assignmentsError);
-      return;
-    }
-    
-    console.log('📊 Form assignments:', assignments?.map(a => ({
-      id: a.id,
-      employee_id: a.employee_id,
-      status: a.status,
-      assigned_by: a.assigned_by
-    })));
-    
-    // 4. Get profiles for all assigned users
-    if (assignments && assignments.length > 0) {
-      const userIds = assignments.map(a => a.employee_id);
-      const { data: userProfiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('*')
-        .in('id', userIds);
-      
-      if (profilesError) {
-        console.error('❌ User profiles error:', profilesError);
-      } else {
-        console.log('👥 Assigned user profiles:', userProfiles?.map(p => ({
-          id: p.id,
-          name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
-          email: p.email
-        })));
-      }
-    }
-    
-    console.log('✅ DEBUG: Form issues diagnosis complete');
-    
-  } catch (error) {
-    console.error('💥 Debug function error:', error);
-  }
-}; 
+ 
 
-// Debug function to test RLS permissions
-export const debugRLSPermissions = async () => {
-  try {
-    console.log('🔐 DEBUG: Testing RLS permissions...');
-    
-    // 1. Get current user
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log('👤 Current user:', user?.id, user?.email);
-    
-    // 2. Try to fetch current user's profile
-    console.log('🔍 Testing: Current user profile access...');
-    const { data: ownProfile, error: ownError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user?.id)
-      .single();
-    
-    if (ownError) {
-      console.error('❌ Cannot access own profile:', ownError);
-    } else {
-      console.log('✅ Own profile accessible:', {
-        id: ownProfile.id,
-        name: `${ownProfile.first_name} ${ownProfile.last_name}`,
-        email: ownProfile.email
-      });
-    }
-    
-    // 3. Try to fetch ALL profiles
-    console.log('🔍 Testing: All profiles access...');
-    const { data: allProfiles, error: allError } = await supabase
-      .from('profiles')
-      .select('id, first_name, last_name, email');
-    
-    if (allError) {
-      console.error('❌ Cannot access all profiles:', allError);
-    } else {
-      console.log('✅ All profiles accessible count:', allProfiles?.length);
-      console.log('📊 All profiles:', allProfiles?.map(p => ({
-        id: p.id,
-        name: `${p.first_name} ${p.last_name}`,
-        email: p.email
-      })));
-    }
-    
-    // 4. Try to fetch specific profile by ID
-    const testUserId = '4ebc5e80-2b78-46bd-8a95-3d1e3c6a2f4e'; // Replace with a known user ID
-    console.log('🔍 Testing: Specific profile access for ID:', testUserId);
-    const { data: specificProfile, error: specificError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', testUserId)
-      .single();
-    
-    if (specificError) {
-      console.error('❌ Cannot access specific profile:', specificError);
-    } else {
-      console.log('✅ Specific profile accessible:', specificProfile);
-    }
-    
-    // 5. Check form assignments RLS
-    console.log('🔍 Testing: Form assignments access...');
-    const { data: assignments, error: assignError } = await supabase
-      .from('form_assignments')
-      .select('*');
-    
-    if (assignError) {
-      console.error('❌ Cannot access form assignments:', assignError);
-    } else {
-      console.log('✅ Form assignments accessible count:', assignments?.length);
-      console.log('📊 Unique employee IDs in assignments:', [...new Set(assignments?.map(a => a.employee_id))]);
-    }
-    
-    console.log('✅ RLS permissions debug complete');
-    
-  } catch (error) {
-    console.error('💥 RLS debug error:', error);
-  }
-}; 
+ 
 
-// Function to diagnose metadata vs assignments mismatch
-export const diagnoseAssignmentMismatch = async (formId: string) => {
-  try {
-    console.log('🔍 ASSIGNMENT MISMATCH DIAGNOSIS for form:', formId);
-    
-    // 1. Get form metadata
-    const { data: form, error: formError } = await supabase
-      .from('forms')
-      .select('*')
-      .eq('id', formId)
-      .single();
-
-    if (formError) {
-      console.error('❌ Error fetching form:', formError);
-      return { error: formError };
-    }
-
-    console.log('📊 Form metadata:', form?.metadata);
-    const metadataUsers = form?.metadata?.assigned_employees || [];
-    console.log('👥 Users in metadata:', metadataUsers);
-
-    // 2. Get actual assignments
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from('form_assignments')
-      .select('*')
-      .eq('form_id', formId);
-
-    if (assignmentsError) {
-      console.error('❌ Error fetching assignments:', assignmentsError);
-      return { error: assignmentsError };
-    }
-
-    const assignmentUsers = assignments?.map(a => a.employee_id) || [];
-    console.log('📝 Users with actual assignments:', assignmentUsers);
-
-    // 3. Find mismatches
-    const missingAssignments = metadataUsers.filter((userId: string) => !assignmentUsers.includes(userId));
-    const extraAssignments = assignmentUsers.filter(userId => !metadataUsers.includes(userId));
-
-    console.log('❌ Missing assignments for users:', missingAssignments);
-    console.log('❓ Extra assignments for users:', extraAssignments);
-
-    return {
-      form,
-      metadataUsers,
-      assignmentUsers,
-      missingAssignments,
-      extraAssignments,
-      error: null
-    };
-
-  } catch (error) {
-    console.error('💥 Error diagnosing assignment mismatch:', error);
-    return { error: { message: error instanceof Error ? error.message : 'Unknown error' } };
-  }
-};
-
-// Function to fix assignment mismatch using service role (bypass RLS)
-export const fixAssignmentMismatch = async (formId: string, adminUserId: string) => {
-  try {
-    console.log('🔧 FIXING ASSIGNMENT MISMATCH for form:', formId);
-    
-    const diagnosis = await diagnoseAssignmentMismatch(formId);
-    if (diagnosis.error || !diagnosis.missingAssignments?.length) {
-      console.log('ℹ️ No missing assignments to fix');
-      return diagnosis;
-    }
-
-    console.log('⚠️ WARNING: This fix requires admin privileges to create assignment records.');
-    console.log('📋 Missing assignments for users:', diagnosis.missingAssignments);
-
-    // For now, let's create a detailed report for the admin to manually fix
-    const fixReport = {
-      formId,
-      formTitle: diagnosis.form?.title,
-      missingAssignments: diagnosis.missingAssignments,
-      metadataUsers: diagnosis.metadataUsers,
-      assignmentUsers: diagnosis.assignmentUsers,
-      instructions: `To fix this manually:
-1. Log into Supabase dashboard
-2. Go to Table Editor > form_assignments
-3. Create new records for missing users: ${diagnosis.missingAssignments?.join(', ')}
-4. Use these values:
-   - form_id: ${formId}
-   - employee_id: [missing user ID]
-   - assigned_by: ${diagnosis.form?.created_by}
-   - status: 'pending'
-   - due_date: ${diagnosis.form?.settings?.due_date || 'NULL'}
-   - created_at: NOW()
-   - updated_at: NOW()`
-    };
-
-    console.log('📋 FIX REPORT:', fixReport);
-
-    return {
-      ...diagnosis,
-      fixReport,
-      needsManualFix: true,
-      error: null
-    };
-
-  } catch (error) {
-    console.error('💥 Error preparing assignment fix:', error);
-    return { error: { message: error instanceof Error ? error.message : 'Unknown error' } };
-  }
-};
-
-// Function to create a simpler admin fix SQL
-export const generateFixSQL = async (formId: string) => {
-  try {
-    const diagnosis = await diagnoseAssignmentMismatch(formId);
-    if (diagnosis.error || !diagnosis.missingAssignments?.length) {
-      return { sql: null, message: 'No missing assignments found' };
-    }
-
-    const missingUsers = diagnosis.missingAssignments;
-    const form = diagnosis.form;
-
-    const sqlStatements = missingUsers?.map((userId: string) => `
-INSERT INTO form_assignments (
-  form_id,
-  employee_id,
-  assigned_by,
-  status,
-  due_date,
-  created_at,
-  updated_at
-) VALUES (
-  '${formId}',
-  '${userId}',
-  '${form?.created_by}',
-  'pending',
-  ${form?.settings?.due_date ? `'${form.settings.due_date}'` : 'NULL'},
-  NOW(),
-  NOW()
-);`).join('\n');
-
-    return {
-      sql: sqlStatements,
-      message: `SQL to fix ${missingUsers?.length} missing assignments`,
-      missingUsers
-    };
-
-  } catch (error) {
-    return { 
-      sql: null, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    };
-  }
-}; 
-
-// Function to verify current assignment state after fix
-export const verifyAssignmentFix = async (formId: string) => {
-  try {
-    console.log('🔍 VERIFYING ASSIGNMENT FIX for form:', formId);
-
-    // 1. Get form metadata
-    const { data: form, error: formError } = await supabase
-      .from('forms')
-      .select('*')
-      .eq('id', formId)
-      .single();
-
-    if (formError) {
-      console.error('❌ Error fetching form:', formError);
-      return { error: formError };
-    }
-
-    const metadataUsers = form?.metadata?.assigned_employees || [];
-    console.log('👥 Form metadata users:', metadataUsers);
-
-    // 2. Get actual assignments
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from('form_assignments')
-      .select('*')
-      .eq('form_id', formId);
-
-    if (assignmentsError) {
-      console.error('❌ Error fetching assignments:', assignmentsError);
-      return { error: assignmentsError };
-    }
-
-    console.log('📝 Current assignments count:', assignments?.length);
-    console.log('📋 Assignment details:', assignments?.map(a => ({
-      employee_id: a.employee_id,
-      status: a.status,
-      assigned_by: a.assigned_by,
-      created_at: a.created_at
-    })));
-
-    const assignmentUsers = assignments?.map(a => a.employee_id) || [];
-    console.log('👤 Users with assignments:', assignmentUsers);
-
-    // 3. Check if fix worked
-    const stillMissing = metadataUsers.filter((userId: string) => !assignmentUsers.includes(userId));
-    const extraAssignments = assignmentUsers.filter(userId => !metadataUsers.includes(userId));
-
-    console.log('❌ Still missing assignments:', stillMissing);
-    console.log('❓ Extra assignments:', extraAssignments);
-
-    // 4. Test teammates fetch
-    const { user } = await getCurrentUser();
-    if (user) {
-      console.log('👥 Testing teammates fetch for current user:', user.id);
-      const { data: teammates, error: teammatesError } = await fetchFormTeammates(formId, user.id);
-      
-      if (teammatesError) {
-        console.error('❌ Teammates fetch error:', teammatesError);
-      } else {
-        console.log('✅ Teammates found:', teammates?.length || 0);
-        console.log('📊 Teammates details:', teammates?.map(t => ({
-          userId: t.userId,
-          email: t.profile?.email,
-          status: t.status
-        })));
-      }
-    }
-
-    return {
-      form,
-      metadataUsers,
-      assignmentUsers,
-      stillMissing,
-      extraAssignments,
-      assignments,
-      fixWorked: stillMissing.length === 0,
-      error: null
-    };
-
-  } catch (error) {
-    console.error('💥 Error verifying fix:', error);
-    return { error: { message: error instanceof Error ? error.message : 'Unknown error' } };
-  }
-}; 
+ 
