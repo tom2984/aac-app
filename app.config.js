@@ -17,11 +17,9 @@ export default {
       policy: "appVersion"
     },
     ios: {
-      bundleIdentifier: "com.aac.forms",
       supportsTablet: true
     },
     android: {
-      package: "com.aac.forms",
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
         backgroundColor: "#ffffff"
