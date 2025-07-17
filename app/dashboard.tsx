@@ -542,15 +542,7 @@ const FormsListScreen = () => {
             <CalendarIcon color="white" size={20} />
             <Text className="text-white font-inter font-medium">Annual Leave</Text>
           </Pressable>
-          
-          {/* Debug Button */}
-          <Pressable
-            className="bg-white/20 px-3 py-1 rounded-full"
-            onPress={() => router.push('/debug-tools' as any)}
-            accessibilityLabel="Debug Tools"
-          >
-            <Text className="text-white font-inter text-sm font-medium">🔍 Debug</Text>
-          </Pressable>
+
         </View>
       </View>
 
