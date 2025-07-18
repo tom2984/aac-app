@@ -109,16 +109,20 @@ const FormQuestions = ({ questions, onAnswersChange }: FormQuestionsProps & { on
   const [answers, setAnswers] = React.useState<{ [id: string]: string }>({});
 
   const handleTextChange = React.useCallback((id: string, text: string) => {
-    const newAnswers = { ...answers, [id]: text };
-    setAnswers(newAnswers);
-    onAnswersChange(newAnswers);
-  }, [answers, onAnswersChange]);
+    setAnswers(prevAnswers => {
+      const newAnswers = { ...prevAnswers, [id]: text };
+      onAnswersChange(newAnswers);
+      return newAnswers;
+    });
+  }, [onAnswersChange]);
 
   const handleSelect = React.useCallback((id: string, option: string) => {
-    const newAnswers = { ...answers, [id]: option };
-    setAnswers(newAnswers);
-    onAnswersChange(newAnswers);
-  }, [answers, onAnswersChange]);
+    setAnswers(prevAnswers => {
+      const newAnswers = { ...prevAnswers, [id]: option };
+      onAnswersChange(newAnswers);
+      return newAnswers;
+    });
+  }, [onAnswersChange]);
 
   return (
     <View className="px-4 pt-4 pb-2">
