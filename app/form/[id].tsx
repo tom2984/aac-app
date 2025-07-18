@@ -1,8 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeftIcon, PlusIcon, UserIcon, XIcon } from 'lucide-react-native';
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, Modal, Pressable, ScrollView, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
-import { calculateTimeRemaining, fetchFormResponse, fetchFormTeammates, formatDate, getCurrentUser, supabase, type AssignedForm, type FormQuestion, type FormTeammate } from '../../lib/supabase';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { calculateTimeRemaining, fetchFormTeammates, getCurrentUser, supabase, type AssignedForm, type FormQuestion, type FormTeammate } from '../../lib/supabase';
 
 // Module-level storage for form answers
 const formAnswersStorage = new Map<string, string>();
@@ -12,27 +11,30 @@ type ExtendedQuestionType = 'short_text' | 'long_text' | 'single_select' | 'mult
 
 // Function to map database question types to our extended types
 const mapQuestionType = (dbType: string, options: any): ExtendedQuestionType => {
+  console.log(`🔧 mapQuestionType called with: dbType="${dbType}", options=`, options);
+  
   switch (dbType) {
     case 'text':
+    case 'short_text':
       return 'short_text';
+    case 'long_text':
+      return 'long_text';
     case 'boolean':
-      return 'single_select';
     case 'rating':
+    case 'single_select':
       return 'single_select';
     case 'multiple_choice':
+    case 'multi_select':
+      // Check if it has multiple options for multi_select vs single_select
       return Array.isArray(options) && options.length > 1 ? 'multiple_select' : 'single_select';
     case 'date':
       return 'short_text';
     case 'composite':
       return 'composite';
     default:
+      console.warn(`⚠️ Unknown question type: "${dbType}", defaulting to short_text`);
       return 'short_text';
   }
-};
-
-// Check if a question type should be treated as having text in options
-const hasTextOptions = (question: FormQuestion): boolean => {
-  return !!(question.options && Array.isArray(question.options) && question.options.length > 0);
 };
 
 interface FormDetailsData {
@@ -40,39 +42,673 @@ interface FormDetailsData {
   questions: FormQuestion[];
 }
 
-interface FormAnswer {
+// ADD BACK SIMPLE TEXT INPUT - This might be the culprit!
+const SimpleTextInput = React.memo(({ questionId, placeholder, isReadOnly }: {
   questionId: string;
-  answer: any;
-}
+  placeholder: string;
+  isReadOnly: boolean;
+}) => {
+  console.log(`📝 SimpleTextInput render for ${questionId}`);
+  
+  // Initialize from storage if available
+  const [text, setText] = React.useState(() => {
+    return formAnswersStorage.get(questionId) || '';
+  });
+  
+  // Only update storage when text actually changes, and debounce it
+  React.useEffect(() => {
+    console.log(`💾 SimpleTextInput useEffect for ${questionId}, text: "${text}"`);
+    const timeoutId = setTimeout(() => {
+      formAnswersStorage.set(questionId, text);
+    }, 100); // Small debounce to prevent excessive updates
+    
+    return () => clearTimeout(timeoutId);
+  }, [text, questionId]);
 
-interface FormResponseData {
-  response: any;
-  answers: any[];
-}
+  return (
+    <TextInput
+      className={`border rounded-lg px-4 py-3 font-inter text-base ${
+        isReadOnly 
+          ? 'border-gray-200 bg-gray-50 text-gray-700' 
+          : 'border-gray-300 bg-white text-gray-900'
+      }`}
+      placeholder={placeholder}
+      placeholderTextColor="#9CA3AF"
+      value={text}
+      onChangeText={(newText) => {
+        console.log(`⌨️ SimpleTextInput onChangeText for ${questionId}: "${newText}"`);
+        setText(newText);
+      }}
+      editable={!isReadOnly}
+      multiline={false}
+      style={{ minHeight: 48 }}
+    />
+  );
+});
 
+// ADD BACK QUESTION COMPONENT - This might be the culprit!
+const QuestionComponent = React.memo(({ 
+  question, 
+  index, 
+  questionId,
+  isReadOnly = false
+}: { 
+  question: FormQuestion; 
+  index: number; 
+  questionId: string;
+  isReadOnly?: boolean;
+}) => {
+  const renderCountRef = React.useRef(0);
+  renderCountRef.current++;
+  
+  // Local state to trigger re-renders when answers change
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
+  
+  // Parse JSON strings from database
+  const parsedOptions = React.useMemo(() => {
+    if (!question.options) return [];
+    if (Array.isArray(question.options)) return question.options;
+    if (typeof question.options === 'string') {
+      try {
+        const parsed = JSON.parse(question.options);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.warn('Failed to parse options:', question.options);
+        return [];
+      }
+    }
+    return [];
+  }, [question.options]);
+
+  const parsedSubQuestions = React.useMemo(() => {
+    if (!question.sub_questions) return [];
+    if (Array.isArray(question.sub_questions)) return question.sub_questions;
+    if (typeof question.sub_questions === 'string') {
+      try {
+        const parsed = JSON.parse(question.sub_questions);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        console.warn('Failed to parse sub_questions:', question.sub_questions);
+        return [];
+      }
+    }
+    return [];
+  }, [question.sub_questions]);
+  
+  console.log(`🔄 QuestionComponent render #${renderCountRef.current} for question ${questionId}`);
+  console.log(`📝 Question details:`, {
+    questionText: question.question_text,
+    questionType: question.question_type,
+    mappedType: mapQuestionType(question.question_type, parsedOptions),
+    rawOptions: question.options,
+    parsedOptions: parsedOptions,
+    parsedOptionsLength: parsedOptions.length,
+    isRequired: question.is_required,
+    rawSubQuestions: question.sub_questions,
+    parsedSubQuestions: parsedSubQuestions,
+    parsedSubQuestionsLength: parsedSubQuestions.length
+  });
+  
+  console.log(`🎯 MAPPING DEBUG: Raw type "${question.question_type}" maps to "${mapQuestionType(question.question_type, parsedOptions)}"`);
+
+  const questionType = mapQuestionType(question.question_type, parsedOptions);
+  console.log(`🎯 Final questionType: ${questionType}, will show input: ${questionType === 'short_text'}`);
+
+  return (
+    <View className="bg-white rounded-2xl p-4 mb-4 border border-gray-100">
+      <Text className="text-gray-500 font-inter text-sm mb-2">Question {index}</Text>
+      <Text className="text-gray-900 font-inter text-base font-medium mb-4">
+        {question.question_text}
+        {question.is_required && !isReadOnly && <Text className="text-red-500"> *</Text>}
+      </Text>
+
+      {/* Short Text Input */}
+      {questionType === 'short_text' && (
+        <SimpleTextInput
+          questionId={questionId}
+          placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
+          isReadOnly={isReadOnly}
+        />
+      )}
+
+      {/* Single Select Questions - Radio Button Style */}
+      {questionType === 'single_select' && (
+        <View className="space-y-3">
+          {parsedOptions.length > 0 ? (
+            parsedOptions.map((option, optionIndex: number) => {
+              const optionText = typeof option === 'string' ? option : String(option);
+              const isSelected = formAnswersStorage.get(questionId) === optionText;
+              return (
+                <Pressable
+                  key={`${questionId}_option_${optionIndex}`}
+                  className="flex-row items-center"
+                  onPress={() => {
+                    if (!isReadOnly) {
+                      formAnswersStorage.set(questionId, optionText);
+                      forceUpdate(); // Trigger re-render to show selection
+                    }
+                  }}
+                  disabled={isReadOnly}
+                >
+                  <View 
+                    className={`w-5 h-5 rounded-full border-2 mr-3 items-center justify-center ${
+                      isSelected ? 'border-[#FF6551]' : 'border-gray-300'
+                    }`}
+                  >
+                    {isSelected && (
+                      <View className="w-3 h-3 rounded-full bg-[#FF6551]" />
+                    )}
+                  </View>
+                  <Text className="text-gray-700 font-inter flex-1">{optionText}</Text>
+                </Pressable>
+              );
+            })
+          ) : (
+            <Text className="text-gray-500 font-inter text-sm italic">
+              No options available
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Composite Question - Render Sub-Questions with Their Own Types */}
+      {questionType === 'composite' && (
+        <View>
+          {(() => {
+            console.log('🔍 COMPOSITE DEBUG:', {
+              rawSubQuestions: question.sub_questions,
+              parsedSubQuestions: parsedSubQuestions,
+              isArray: Array.isArray(parsedSubQuestions),
+              length: parsedSubQuestions.length,
+              firstItem: parsedSubQuestions.length > 0 ? parsedSubQuestions[0] : 'N/A'
+            });
+            
+            if (parsedSubQuestions.length > 0) {
+              console.log('✅ COMPOSITE: Rendering sub-questions');
+              return (
+                <View className="space-y-4">
+                  {parsedSubQuestions.map((subQuestion: any, subIndex: number) => {
+                    console.log(`📝 Sub-question ${subIndex}:`, subQuestion);
+                    
+                    const subQuestionType = subQuestion.type || subQuestion.question_type || 'text';
+                    const subQuestionText = subQuestion.question || subQuestion.text || subQuestion.question_text;
+                    const subQuestionOptions = subQuestion.options || [];
+                    
+                    return (
+                      <View key={`${questionId}_sub_${subIndex}`} className="ml-4 border-l-2 border-gray-200 pl-3">
+                        <Text className="text-gray-700 font-inter text-sm mb-3">
+                          {subIndex + 1}. {subQuestionText}
+                        </Text>
+                        
+                        {/* Sub-question based on its type */}
+                        {(subQuestionType === 'text' || subQuestionType === 'short_text') && (
+                          <SimpleTextInput
+                            questionId={`${questionId}_sub_${subIndex}`}
+                            placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
+                            isReadOnly={isReadOnly}
+                          />
+                        )}
+                        
+                        {(subQuestionType === 'single_select' || subQuestionType === 'multiple_choice') && Array.isArray(subQuestionOptions) && (
+                          <View className="space-y-2">
+                            {subQuestionOptions.map((option: any, optIndex: number) => {
+                              const optionText = typeof option === 'string' ? option : String(option);
+                              const isSelected = formAnswersStorage.get(`${questionId}_sub_${subIndex}`) === optionText;
+                              return (
+                                <Pressable
+                                  key={`${questionId}_sub_${subIndex}_opt_${optIndex}`}
+                                  className="flex-row items-center"
+                                                                     onPress={() => {
+                                     if (!isReadOnly) {
+                                       formAnswersStorage.set(`${questionId}_sub_${subIndex}`, optionText);
+                                       forceUpdate(); // Trigger re-render to show selection
+                                     }
+                                   }}
+                                  disabled={isReadOnly}
+                                >
+                                  <View 
+                                    className={`w-4 h-4 rounded-full border-2 mr-2 items-center justify-center ${
+                                      isSelected ? 'border-[#FF6551]' : 'border-gray-300'
+                                    }`}
+                                  >
+                                    {isSelected && (
+                                      <View className="w-2 h-2 rounded-full bg-[#FF6551]" />
+                                    )}
+                                  </View>
+                                  <Text className="text-gray-600 font-inter text-sm">{optionText}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            } else {
+              console.log('❌ COMPOSITE: No sub-questions, showing fallback input');
+              return (
+                <SimpleTextInput
+                  questionId={questionId}
+                  placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
+                  isReadOnly={isReadOnly}
+                />
+              );
+            }
+          })()}
+        </View>
+      )}
+
+      {/* Multiple Select Questions */}
+      {questionType === 'multiple_select' && (
+        <View className="space-y-3">
+          {parsedOptions.length > 0 ? (
+            parsedOptions.map((option, optionIndex: number) => {
+              const optionText = typeof option === 'string' ? option : String(option);
+              const currentAnswers = formAnswersStorage.get(questionId)?.split(',') || [];
+              const isSelected = currentAnswers.includes(optionText);
+              return (
+                <Pressable
+                  key={`${questionId}_option_${optionIndex}`}
+                  className="flex-row items-center"
+                  onPress={() => {
+                    if (!isReadOnly) {
+                      const newAnswers = isSelected
+                        ? currentAnswers.filter(a => a !== optionText)
+                        : [...currentAnswers, optionText];
+                      formAnswersStorage.set(questionId, newAnswers.join(','));
+                      forceUpdate(); // Trigger re-render to show selection
+                    }
+                  }}
+                  disabled={isReadOnly}
+                >
+                  <View 
+                    className={`w-5 h-5 rounded border-2 mr-3 items-center justify-center ${
+                      isSelected ? 'border-[#FF6551] bg-[#FF6551]' : 'border-gray-300'
+                    }`}
+                  >
+                    {isSelected && (
+                      <Text className="text-white font-bold text-xs">✓</Text>
+                    )}
+                  </View>
+                  <Text className="text-gray-700 font-inter flex-1">{optionText}</Text>
+                </Pressable>
+              );
+            })
+          ) : (
+            <Text className="text-gray-500 font-inter text-sm italic">
+              No options available
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Long Text Input */}
+      {questionType === 'long_text' && (
+        <SimpleTextInput
+          questionId={questionId}
+          placeholder={isReadOnly ? 'No answer provided' : 'Type your detailed answer...'}
+          isReadOnly={isReadOnly}
+        />
+      )}
+
+      {/* Debug for unsupported types */}
+      {!['short_text', 'long_text', 'single_select', 'multiple_select', 'composite'].includes(questionType) && (
+        <View className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+          <Text className="text-yellow-800 text-xs">
+            Debug: questionType = "{questionType}" | raw = "{question.question_type}"
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+});
+
+// Test version to gradually restore functionality
 const FormDetailsScreen = () => {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string }>();
+  const [stableId] = useState(() => params.id);
+
+  // Add back core state
   const [formData, setFormData] = useState<FormDetailsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
-  const [formResponseData, setFormResponseData] = useState<FormResponseData | null>(null);
   
-  // Teammate selection state
-  const [showTeammateModal, setShowTeammateModal] = useState(false);
+  // Add back teammates state
   const [teammates, setTeammates] = useState<FormTeammate[]>([]);
-  const [selectedTeammates, setSelectedTeammates] = useState<string[]>([]);
   const [teammatesLoading, setTeammatesLoading] = useState(true);
   const [teammatesError, setTeammatesError] = useState<string | null>(null);
+  const [selectedTeammates, setSelectedTeammates] = useState<string[]>([]);
+  const [timeRemaining, setTimeRemaining] = useState<string>('0d 0h 0m');
+  const [submitting, setSubmitting] = useState(false);
+  const [showTeammatesModal, setShowTeammatesModal] = useState(false);
 
-  // Fetch form details
+  // Simple render counter
+  const renderCountRef = React.useRef(0);
+  renderCountRef.current++;
+  
+  console.log(`🔄 FINAL FormDetailsScreen render #${renderCountRef.current}, stableId: ${stableId}`);
+  console.log('📊 State:', { 
+    hasFormData: !!formData, 
+    loading, 
+    hasError: !!error, 
+    isReadOnly,
+    teammatesCount: teammates.length,
+    teammatesLoading,
+    teammatesError: !!teammatesError,
+    selectedTeammatesCount: selectedTeammates.length
+  });
+
+  // Memoization logic
+  const questions = React.useMemo(() => {
+    console.log('📋 Recalculating questions memo');
+    return formData?.questions || [];
+  }, [formData?.questions]);
+
+  const assignment = React.useMemo(() => {
+    console.log('👤 Recalculating assignment memo');
+    return formData?.assignment || null;
+  }, [formData?.assignment]);
+
+  const form = React.useMemo(() => {
+    console.log('📝 Recalculating form memo');
+    return assignment?.forms || null;
+  }, [assignment?.forms]);
+
+  const creator = React.useMemo(() => {
+    console.log('👨‍💼 Recalculating creator memo');
+    return assignment?.profiles || null;
+  }, [assignment?.profiles]);
+
+  // Memoized handlers
+  const handleTeammateToggle = React.useCallback((userId: string) => {
+    console.log('🔄 handleTeammateToggle called for:', userId);
+    setSelectedTeammates(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  }, []);
+
+  const handleSubmit = React.useCallback(async () => {
+    console.log('🔄 handleSubmit called');
+    if (!formData || isReadOnly || !assignment || submitting) return;
+    
+    setSubmitting(true);
+    
+    try {
+      // 1. VALIDATION: Check that all required questions have answers
+      const missingRequired: string[] = [];
+      
+      questions.forEach(question => {
+        if (question.is_required) {
+          // For composite questions, only validate sub-questions, not the main question
+          if (question.question_type === 'composite') {
+            let subQuestions = question.sub_questions;
+            if (typeof subQuestions === 'string') {
+              try {
+                subQuestions = JSON.parse(subQuestions);
+              } catch (e) {
+                subQuestions = [];
+              }
+            }
+            
+            if (Array.isArray(subQuestions)) {
+              subQuestions.forEach((subQ, subIndex) => {
+                const subAnswer = formAnswersStorage.get(`${question.id}_sub_${subIndex}`);
+                if (!subAnswer || subAnswer.trim() === '') {
+                  // Safely handle subQ which might be various types
+                  const subQuestionText = (subQ && typeof subQ === 'object' && 'question' in subQ) 
+                    ? String(subQ.question) 
+                    : `Sub-question ${subIndex + 1}`;
+                  missingRequired.push(`${question.question_text} - ${subQuestionText}`);
+                }
+              });
+            }
+          } else {
+            // For non-composite questions, validate the main answer
+            const answer = formAnswersStorage.get(question.id);
+            if (!answer || answer.trim() === '') {
+              missingRequired.push(question.question_text);
+            }
+          }
+        }
+      });
+      
+      // If validation fails, show error and stop
+      if (missingRequired.length > 0) {
+        console.error('❌ Validation failed - missing required answers:', missingRequired);
+        alert(`Please answer all required questions:\n\n${missingRequired.map(q => `• ${q}`).join('\n')}`);
+        return;
+      }
+      
+      // Show confirmation if submitting for teammates
+      if (selectedTeammates.length > 0) {
+        const confirmed = confirm(
+          `You are about to submit this form for yourself and ${selectedTeammates.length} teammate${selectedTeammates.length > 1 ? 's' : ''}.\n\nDo you want to continue?`
+        );
+        if (!confirmed) {
+          return;
+        }
+      }
+      
+      console.log('✅ Validation passed - all required questions answered');
+      
+      // 2. COLLECT ANSWERS: Collect all answers from storage
+      const answers: Record<string, any> = {};
+      questions.forEach(question => {
+        if (question.question_type === 'composite') {
+          // For composite questions, collect all sub-answers into a JSON object
+          let subQuestions = question.sub_questions;
+          if (typeof subQuestions === 'string') {
+            try {
+              subQuestions = JSON.parse(subQuestions);
+            } catch (e) {
+              subQuestions = [];
+            }
+          }
+          
+          if (Array.isArray(subQuestions)) {
+            const subAnswers: Record<string, string> = {};
+            subQuestions.forEach((subQ, subIndex) => {
+              const subAnswer = formAnswersStorage.get(`${question.id}_sub_${subIndex}`);
+              if (subAnswer) {
+                // Use sub-question text as key, or fallback to index
+                const subQuestionText = (subQ && typeof subQ === 'object' && 'question' in subQ) 
+                  ? String(subQ.question) 
+                  : `sub_${subIndex}`;
+                subAnswers[subQuestionText] = subAnswer;
+              }
+            });
+            
+            // Store all sub-answers as a JSON object under the main question ID
+            if (Object.keys(subAnswers).length > 0) {
+              answers[question.id] = subAnswers;
+            }
+          }
+        } else {
+          // For regular questions, store the answer directly
+          const answer = formAnswersStorage.get(question.id);
+          if (answer) {
+            answers[question.id] = answer;
+          }
+        }
+      });
+      
+      console.log('📋 Form answers collected:', answers);
+      
+      // 3. DATABASE SUBMISSION: Create form response and save answers
+      const { user: currentUser } = await getCurrentUser();
+      if (!currentUser) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Step 3a: Create form response record
+      const { data: formResponse, error: responseError } = await supabase
+        .from('form_responses')
+        .insert({
+          form_id: assignment.form_id,
+          respondent_id: currentUser.id,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          started_at: new Date().toISOString(), // Assume started when submitted for now
+          metadata: { 
+            total_questions: questions.length,
+            answered_questions: Object.keys(answers).length 
+          }
+        })
+        .select()
+        .single();
+      
+      if (responseError) {
+        console.error('❌ Error creating form response:', responseError);
+        throw new Error(`Failed to save form response: ${responseError.message}`);
+      }
+      
+      console.log('✅ Form response created:', formResponse.id);
+      
+      // Step 3b: Create answer records for each question
+      const answerInserts = Object.entries(answers).map(([questionId, answer]) => ({
+        response_id: formResponse.id,
+        question_id: questionId,
+        answer: answer // Store as JSON
+      }));
+      
+      if (answerInserts.length > 0) {
+        const { error: answersError } = await supabase
+          .from('form_response_answers')
+          .insert(answerInserts);
+        
+        if (answersError) {
+          console.error('❌ Error saving form answers:', answersError);
+          throw new Error(`Failed to save form answers: ${answersError.message}`);
+        }
+        
+        console.log('✅ Form answers saved:', answerInserts.length);
+      }
+      
+      // Step 3c: Update form assignment status to completed
+      const { error: assignmentError } = await supabase
+        .from('form_assignments')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', stableId);
+      
+      if (assignmentError) {
+        console.error('❌ Error updating assignment status:', assignmentError);
+        throw new Error(`Failed to update assignment status: ${assignmentError.message}`);
+      }
+      
+      console.log('✅ Assignment status updated to completed');
+      
+      // Step 3d: Submit for selected teammates
+      if (selectedTeammates.length > 0 && assignment.forms) {
+        console.log('👥 Submitting for selected teammates:', selectedTeammates.length);
+        
+        for (const teammateId of selectedTeammates) {
+          try {
+            console.log(`📝 Submitting for teammate: ${teammateId}`);
+            
+            // Create form response for teammate
+            const { data: teammateResponse, error: teammateResponseError } = await supabase
+              .from('form_responses')
+              .insert({
+                form_id: assignment.forms.id,
+                respondent_id: teammateId,
+                status: 'submitted',
+                submitted_at: new Date().toISOString(),
+                started_at: new Date().toISOString(),
+                metadata: { 
+                  total_questions: questions.length,
+                  answered_questions: Object.keys(answers).length,
+                  submitted_by: currentUser.id // Track who actually filled it out
+                }
+              })
+              .select()
+              .single();
+            
+            if (teammateResponseError) {
+              console.error(`❌ Error creating teammate response for ${teammateId}:`, teammateResponseError);
+              continue; // Continue with other teammates
+            }
+            
+            // Create answer records for teammate (same answers)
+            const teammateAnswerInserts = Object.entries(answers).map(([questionId, answer]) => ({
+              response_id: teammateResponse.id,
+              question_id: questionId,
+              answer: answer
+            }));
+            
+            if (teammateAnswerInserts.length > 0) {
+              const { error: teammateAnswersError } = await supabase
+                .from('form_response_answers')
+                .insert(teammateAnswerInserts);
+              
+              if (teammateAnswersError) {
+                console.error(`❌ Error saving teammate answers for ${teammateId}:`, teammateAnswersError);
+                continue;
+              }
+            }
+            
+            // Update teammate's form assignment status
+            const { error: teammateAssignmentError } = await supabase
+              .from('form_assignments')
+              .update({
+                status: 'completed',
+                completed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('form_id', assignment.forms.id)
+              .eq('employee_id', teammateId);
+            
+            if (teammateAssignmentError) {
+              console.error(`❌ Error updating teammate assignment for ${teammateId}:`, teammateAssignmentError);
+            } else {
+              console.log(`✅ Teammate submission completed for ${teammateId}`);
+            }
+            
+          } catch (teammateError) {
+            console.error(`💥 Error submitting for teammate ${teammateId}:`, teammateError);
+            // Continue with other teammates
+          }
+        }
+        
+        console.log('✅ All teammate submissions processed');
+      }
+      
+      // 4. SUCCESS: Navigate to success page (keep answers in storage for viewing)
+      console.log('🎉 Form submitted successfully!');
+      
+      // Navigate to success page
+      router.push('/form/success');
+      
+    } catch (error) {
+      console.error('❌ Error submitting form:', error);
+      alert(`Failed to submit form: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [formData, isReadOnly, questions, router, assignment, stableId, submitting, selectedTeammates]);
+
+  const handleDiscard = React.useCallback(() => {
+    console.log('🔄 handleDiscard called');
+    router.back();
+  }, [router]);
+
+  // Add back the core data fetching useEffect
   useEffect(() => {
+    console.log('🔥 useEffect triggered for fetchFormDetails');
     const fetchFormDetails = async () => {
-      if (!id) return;
+      if (!stableId) return;
       
       try {
+        console.log('📡 Starting fetch...');
         setLoading(true);
         setError(null);
 
@@ -86,7 +722,7 @@ const FormDetailsScreen = () => {
               form_questions (*)
             )
           `)
-          .eq('id', id)
+          .eq('id', stableId)
           .single();
 
         if (assignmentError) {
@@ -97,82 +733,100 @@ const FormDetailsScreen = () => {
           throw new Error('Form not found');
         }
 
-        // Check if form is completed
-        const isCompleted = assignment.status === 'completed';
-        setIsReadOnly(isCompleted);
+        console.log('✅ Assignment fetched:', assignment);
 
-        // Fetch creator profile (who created the form)
-        console.log('👤 Fetching creator profile for ID:', assignment.forms.created_by);
-        console.log('🔍 Full form data:', assignment.forms);
-        
-        let creator = null;
-        if (assignment.forms.created_by) {
-          const { data: creatorData, error: creatorError } = await supabase
+        // Fetch creator profile separately
+        if (assignment.forms?.created_by) {
+          console.log('👤 Fetching creator profile for:', assignment.forms.created_by);
+          const { data: creatorProfile, error: profileError } = await supabase
             .from('profiles')
             .select('id, first_name, last_name, email')
             .eq('id', assignment.forms.created_by)
             .single();
 
-          if (creatorError) {
-            console.warn('❌ Could not fetch creator profile:', creatorError);
-            console.log('🔍 Trying to find creator in all profiles...');
-            // Fallback: try to find any profile with this ID
-            const { data: allProfiles } = await supabase
-              .from('profiles')
-              .select('*');
-            console.log('🔍 All profiles:', allProfiles);
+          if (!profileError && creatorProfile) {
+            console.log('✅ Creator profile fetched:', creatorProfile);
+            // Add the profile to the assignment object
+            (assignment as any).profiles = creatorProfile;
           } else {
-            console.log('✅ Creator profile found:', creatorData);
-            creator = creatorData;
+            console.error('❌ Error fetching creator profile:', profileError);
           }
-        } else {
-          console.warn('⚠️ No created_by field in form data');
         }
 
+        // Check if form is completed
+        const isCompleted = assignment.status === 'completed';
+        console.log('📋 Setting isReadOnly to:', isCompleted);
+        setIsReadOnly(isCompleted);
+
         const formDetails: FormDetailsData = {
-          assignment: {
-            ...assignment,
-            profiles: creator || null
-          } as AssignedForm,
+          assignment: assignment as AssignedForm,
           questions: assignment.forms?.form_questions || []
         };
 
+        console.log('💾 Setting form data...');
         setFormData(formDetails);
+        console.log('✅ Form data set successfully');
+        
+        // Calculate timer
+        if (assignment.due_date && assignment.employee_id) {
+          const timer = await calculateTimeRemaining(assignment.due_date, assignment.employee_id);
+          setTimeRemaining(timer);
+        }
 
-        // Debug form questions
-        console.log('📋 Form questions debug:', formDetails.questions.map(q => ({
-          id: q.id,
-          type: q.question_type,
-          text: q.question_text.substring(0, 50) + '...',
-          hasSubQuestions: !!q.sub_questions,
-          mappedType: mapQuestionType(q.question_type, q.options)
-        })));
+        // Teammates functionality
+        console.log('👥 Starting teammates fetch...');
+        const { user: currentUserData } = await getCurrentUser();
 
-        // If form is completed, fetch the submitted response
-        if (isCompleted && assignment.forms) {
-          const { data: responseData, error: responseError } = await fetchFormResponse(
-            assignment.forms.id,
-            assignment.employee_id
-          );
+        // Load previously submitted answers if form is completed
+        if (isCompleted && assignment.forms && currentUserData) {
+          console.log('📋 Loading submitted answers for completed form...');
+          try {
+            const { data: formResponseData, error: responseError } = await supabase
+              .from('form_responses')
+              .select(`
+                id,
+                form_response_answers (
+                  question_id,
+                  answer
+                )
+              `)
+              .eq('form_id', assignment.forms.id)
+              .eq('respondent_id', assignment.employee_id)
+              .eq('status', 'submitted')
+              .order('submitted_at', { ascending: false })
+              .limit(1)
+              .single();
 
-          if (responseError) {
-            console.warn('Could not fetch form response:', responseError);
-          } else if (responseData) {
-            setFormResponseData(responseData);
-            
-            // Pre-fill answers from the response
-            const existingAnswers = responseData.answers.map((answer: any) => ({
-              questionId: answer.question_id,
-              answer: answer.answer
-            }));
-            // setAnswers(existingAnswers); // This line is removed
+            if (responseError) {
+              console.error('❌ Error loading submitted answers:', responseError);
+            } else if (formResponseData && formResponseData.form_response_answers) {
+              console.log('✅ Found submitted answers:', formResponseData.form_response_answers.length);
+              
+              // Populate formAnswersStorage with submitted answers
+              formResponseData.form_response_answers.forEach((answerRecord: any) => {
+                const questionId = answerRecord.question_id;
+                const answer = answerRecord.answer;
+                
+                if (typeof answer === 'object' && answer !== null) {
+                  // Handle composite question answers (stored as JSON object)
+                  Object.entries(answer).forEach(([subQuestionText, subAnswer], index) => {
+                    formAnswersStorage.set(`${questionId}_sub_${index}`, String(subAnswer));
+                  });
+                } else {
+                  // Handle regular question answers
+                  formAnswersStorage.set(questionId, String(answer));
+                }
+              });
+              
+              console.log('✅ Submitted answers loaded into storage');
+            } else {
+              console.log('ℹ️ No submitted answers found for this form');
+            }
+          } catch (error) {
+            console.error('💥 Error loading submitted answers:', error);
           }
         }
 
-        // Fetch current user for teammate functionality
-        const { user: currentUserData } = await getCurrentUser();
-
-        // Fetch teammates if form is not completed (only for active forms)
         if (!isCompleted && assignment.forms && currentUserData) {
           try {
             setTeammatesLoading(true);
@@ -185,15 +839,9 @@ const FormDetailsScreen = () => {
 
             if (teammatesError) {
               console.error('❌ Error fetching teammates:', teammatesError);
-              console.error('❌ Teammates error details:', {
-                message: teammatesError.message,
-                details: 'details' in teammatesError ? teammatesError.details : undefined,
-                hint: 'hint' in teammatesError ? teammatesError.hint : undefined,
-                code: 'code' in teammatesError ? teammatesError.code : undefined
-              });
               setTeammatesError(teammatesError.message || 'Failed to load teammates');
-              // Don't throw here, just log and continue without teammates
             } else if (teammatesData) {
+              console.log('✅ Setting teammates:', teammatesData.length);
               setTeammates(teammatesData);
               console.log('✅ Teammates loaded successfully:', teammatesData.length);
             } else {
@@ -203,229 +851,26 @@ const FormDetailsScreen = () => {
           } catch (err) {
             console.error('💥 Unexpected error during teammate fetch:', err);
             setTeammatesError('Unexpected error loading teammates');
-            // Continue without teammates functionality
           } finally {
+            console.log('🏁 Setting teammatesLoading to false...');
             setTeammatesLoading(false);
           }
         } else {
-          // Not fetching teammates (completed form or missing data)
-          setTeammatesLoading(false);
           console.log('ℹ️ Not fetching teammates:', { isCompleted, hasForm: !!assignment.forms, hasUser: !!currentUserData });
+          setTeammatesLoading(false);
         }
 
-        console.log('✅ Form details loaded:', formDetails);
       } catch (error) {
         console.error('❌ Error fetching form details:', error);
         setError(error instanceof Error ? error.message : 'Failed to load form');
       } finally {
+        console.log('🏁 Setting loading to false...');
         setLoading(false);
       }
     };
 
     fetchFormDetails();
-  }, [id]);
-
-  // Simple no-op handler for non-text inputs (they manage their own state)
-  const handleAnswerChange = useCallback(() => {
-    // No-op - text inputs manage their own state via formAnswersStorage
-  }, []);
-
-  const handleSubmit = async () => {
-    if (!formData || isReadOnly) return;
-
-    try {
-      setSubmitting(true);
-      console.log('🚀 Starting form submission...');
-      
-      // Collect answers from storage
-      const collectedAnswers: FormAnswer[] = [];
-      formData.questions.forEach(question => {
-        const answer = formAnswersStorage.get(question.id);
-        if (answer) {
-          collectedAnswers.push({ questionId: question.id, answer });
-        }
-      });
-      
-      console.log('📝 Collected answers from storage:', collectedAnswers);
-      console.log('👥 Selected teammates:', selectedTeammates);
-      
-      // Validate required questions
-      const requiredQuestions = formData.questions.filter(q => q.is_required);
-      console.log('🔍 Required questions:', requiredQuestions.map(q => ({ id: q.id, text: q.question_text })));
-      
-      const unansweredRequired = requiredQuestions.filter(q => {
-        const answer = collectedAnswers.find(a => a.questionId === q.id);
-        const hasAnswer = answer && answer.answer !== null && answer.answer !== undefined && answer.answer !== '';
-        console.log(`❓ Question "${q.question_text}" (${q.id}): ${hasAnswer ? 'answered' : 'missing'}`);
-        return !hasAnswer;
-      });
-
-      if (unansweredRequired.length > 0) {
-        console.log('❌ Missing required answers:', unansweredRequired.map(q => q.question_text));
-        Alert.alert('Missing Required Answers', 'Please answer all required questions before submitting.');
-        return;
-      }
-
-      console.log('✅ All required questions answered');
-
-      // Get all respondents (current user + selected teammates)
-      const allRespondents = [
-        formData.assignment.employee_id, // Current user
-        ...selectedTeammates // Selected teammates
-      ];
-
-      console.log('🎯 Submitting for respondents:', allRespondents);
-
-      // Create form responses for all respondents
-      const responseInserts = allRespondents.map(respondentId => ({
-        form_id: formData.assignment.form_id,
-        respondent_id: respondentId,
-        status: 'submitted',
-        submitted_at: new Date().toISOString()
-      }));
-
-      console.log('📊 Creating form responses...');
-      
-      // Try to create form responses with better error handling
-      const { data: responses, error: responseError } = await supabase
-        .from('form_responses')
-        .insert(responseInserts)
-        .select('*');
-
-      if (responseError) {
-        console.error('❌ Error creating form responses:', responseError);
-        console.error('❌ Full error details:', {
-          code: responseError.code,
-          message: responseError.message,
-          details: responseError.details,
-          hint: responseError.hint
-        });
-        
-        // Provide more specific error message
-        if (responseError.message.includes('notifications')) {
-          throw new Error('Database configuration issue with notifications. Please contact administrator.');
-        } else if (responseError.code === '42501') {
-          throw new Error('Permission denied. Please check your access rights.');
-        } else {
-          throw new Error(responseError.message);
-        }
-      }
-
-      console.log('✅ Form responses created:', responses?.length);
-
-      // Create answer entries for each response
-      const allAnswerInserts = responses?.flatMap((response: any) => 
-        collectedAnswers.map(answer => ({
-          response_id: response.id,
-          question_id: answer.questionId,
-          answer: answer.answer
-        }))
-      ) || [];
-
-      console.log('💾 Saving answers for all respondents...');
-      console.log('📤 Total answer inserts:', allAnswerInserts.length);
-
-      const { error: answersError } = await supabase
-        .from('form_response_answers')
-        .insert(allAnswerInserts);
-
-      if (answersError) {
-        console.error('❌ Error saving answers:', answersError);
-        throw new Error(answersError.message);
-      }
-
-      console.log('✅ Answers saved successfully for all respondents');
-
-      // Update assignment status for all respondents
-      console.log('🔄 Updating assignment status for all respondents...');
-      
-      // Get all assignment IDs for the selected respondents
-      const assignmentIds = [formData.assignment.id]; // Current user's assignment
-
-      // Find assignment IDs for selected teammates
-      const teammateAssignmentIds = selectedTeammates.map(teammateId => {
-        const teammate = teammates.find(t => t.userId === teammateId);
-        if (!teammate) {
-          console.warn(`⚠️ Could not find teammate data for user: ${teammateId}`);
-          return null;
-        }
-        if (!teammate.assignmentId) {
-          console.warn(`⚠️ Teammate ${teammateId} has no assignment ID`);
-          return null;
-        }
-        console.log(`✅ Found assignment ID for teammate ${teammateId}: ${teammate.assignmentId}`);
-        return teammate.assignmentId;
-      }).filter(Boolean);
-
-      const allAssignmentIds = [...assignmentIds, ...teammateAssignmentIds];
-
-      console.log('📝 Current user assignment ID:', formData.assignment.id);
-      console.log('📝 Teammate assignment IDs:', teammateAssignmentIds);
-      console.log('📝 All assignment IDs to update:', allAssignmentIds);
-
-      if (teammateAssignmentIds.length !== selectedTeammates.length) {
-        console.warn(`⚠️ Warning: Expected ${selectedTeammates.length} teammate assignments, but found ${teammateAssignmentIds.length}`);
-      }
-
-      const { error: updateError } = await supabase
-        .from('form_assignments')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .in('id', allAssignmentIds);
-
-      if (updateError) {
-        console.error('❌ Error updating assignments:', updateError);
-        throw new Error(updateError.message);
-      }
-
-      console.log('✅ All assignments updated to completed');
-      console.log('🎉 Form submission successful for all respondents!');
-
-      // Navigate to success screen
-      router.push('/form/success');
-
-    } catch (error) {
-      console.error('💥 Error submitting form:', error);
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to submit form');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDiscard = () => {
-    if (isReadOnly) {
-      router.back();
-      return;
-    }
-
-    Alert.alert(
-      'Discard Changes',
-      'Are you sure you want to discard your changes?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => router.back() }
-      ]
-    );
-  };
-
-  // Teammate selection handlers
-  const handleTeammateToggle = (userId: string) => {
-    setSelectedTeammates(prev => 
-      prev.includes(userId) 
-        ? prev.filter(id => id !== userId)
-        : [...prev, userId]
-    );
-  };
-
-  const handleOpenTeammateModal = () => {
-    setShowTeammateModal(true);
-  };
-
-  const handleCloseTeammateModal = () => {
-    setShowTeammateModal(false);
-  };
+  }, [stableId]);
 
   if (loading) {
     return (
@@ -436,7 +881,7 @@ const FormDetailsScreen = () => {
     );
   }
 
-  if (error || !formData) {
+  if (error || !formData || !assignment || !form) {
     return (
       <View className="flex-1 justify-center items-center px-4 bg-gray-50">
         <Text className="text-red-500 font-inter text-lg mb-4 text-center">
@@ -452,551 +897,206 @@ const FormDetailsScreen = () => {
     );
   }
 
-  const { assignment, questions } = formData;
-  const form = assignment.forms;
-  const creator = assignment.profiles;
-
   return (
-    <View className="flex-1 bg-gray-50">
-        {/* Header */}
-      <View className="bg-[#FF6551] px-4 pt-16 pb-6">
-        <View className="flex-row items-center justify-between mb-4">
-          <Pressable
-            onPress={() => router.back()}
-            className="w-8 h-8 items-center justify-center"
-          >
-            <ArrowLeftIcon size={24} color="white" />
+    <View className="flex-1 bg-white">
+      {/* Mobile Header - Reduced size and improved scrolling */}
+      <View className="bg-[#FF6551] pt-10 pb-4 px-4 rounded-b-[24px]">
+        <View className="flex-row items-center justify-between mb-3">
+          <Pressable onPress={() => router.back()} className="p-2">
+            <Text className="text-white font-inter text-xl">←</Text>
           </Pressable>
-          <Text className="text-white font-inter text-base font-medium">
-            {isReadOnly ? 'Completed' : calculateTimeRemaining(assignment.due_date)}
+          <Text className="text-white font-inter text-sm">
+            {timeRemaining}
           </Text>
-          <View className="w-8 h-8" />
+          <Pressable className="p-2">
+            <Text className="text-white font-inter text-xl">⋯</Text>
+          </Pressable>
         </View>
         
-        <View>
-          <Text className="text-white font-inter text-2xl font-bold mb-2">
+        <View className="pb-2">
+          <Text className="text-white font-inter text-xl font-bold mb-2">
             {form.title}
           </Text>
-          {form.description && (
-            <Text className="text-white/90 font-inter text-base">
-              {form.description}
-            </Text>
-          )}
-          {isReadOnly && (
-            <Text className="text-white/80 font-inter text-sm mt-2">
-              ✓ This form has been submitted
-            </Text>
-          )}
-        </View>
-      </View>
-
-      {/* Form Info */}
-      <View className="bg-white px-4 py-4 border-b border-gray-100">
-        <View className="flex-row items-center justify-between mb-3">
-          <View className="flex-1">
-            <Text className="text-gray-500 font-inter text-sm mb-1">Created by</Text>
-            <Text className="text-gray-900 font-inter text-lg font-semibold">
-              {creator 
-                ? `${creator.first_name || ''} ${creator.last_name || ''}`.trim() || creator.email
-                : 'Unknown'
-              }
-            </Text>
+          <Text className="text-white/80 font-inter text-sm mb-3">
+            {form.description || 'Weather is affects on the work'}
+          </Text>
+          
+          <View className="flex-row items-center justify-between mb-3">
+            <View>
+              <Text className="text-white/60 font-inter text-xs">Created by</Text>
+              <Text className="text-white font-inter text-sm">
+                {creator?.first_name} {creator?.last_name}
+              </Text>
+            </View>
+            <View>
+              <Text className="text-white/60 font-inter text-xs">Last Update</Text>
+              <Text className="text-white font-inter text-sm">
+                {new Date().toLocaleDateString('en-GB', { 
+                  day: '2-digit', 
+                  month: '2-digit', 
+                  year: 'numeric' 
+                })} 11:30AM
+              </Text>
+            </View>
           </View>
           
-          <View className="items-end">
-            <Text className="text-gray-500 font-inter text-sm mb-1">
-              {isReadOnly ? 'Submitted' : 'Last Update'}
-            </Text>
-            <Text className="text-gray-900 font-inter text-lg font-semibold">
-              {isReadOnly && formResponseData?.response?.submitted_at
-                ? formatDate(formResponseData.response.submitted_at)
-                : formatDate(assignment.updated_at)
-              }
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Teammate Selection */}
-      {!isReadOnly && (
-        <View className="bg-white px-4 py-4 border-b border-gray-100">
-          <View className="flex-row items-center justify-between mb-3">
-            <Text className="text-gray-500 font-inter text-sm">Filled out by teammates</Text>
-            
+          <View className="flex-row items-center">
+            <Text className="text-white/60 font-inter text-xs mr-2">Filled out by teammates</Text>
             {teammatesLoading ? (
-              <View className="flex-row items-center">
-                <ActivityIndicator size="small" color="#FF6551" />
-                <Text className="text-gray-500 font-inter text-xs ml-2">Loading teammates...</Text>
-              </View>
-            ) : teammatesError ? (
-              <Text className="text-red-500 font-inter text-xs">Failed to load teammates</Text>
-            ) : teammates.length === 0 ? (
-              <Text className="text-gray-400 font-inter text-xs">No other teammates assigned</Text>
-            ) : (
-              <Pressable
-                onPress={handleOpenTeammateModal}
-                className="bg-[#FF6551] px-4 py-2 rounded-full flex-row items-center"
+              <Text className="text-white/60 font-inter text-xs">Loading...</Text>
+            ) : teammates.length > 0 ? (
+              <Pressable 
+                className="bg-[#FF6551] border border-white/20 rounded-full px-3 py-1 flex-row items-center"
+                onPress={() => setShowTeammatesModal(true)}
+                disabled={isReadOnly}
               >
-                <PlusIcon size={16} color="white" />
-                <Text className="text-white font-inter text-sm ml-2">Add Teammate</Text>
+                <View className="flex-row -mr-1">
+                  {teammates.slice(0, 3).map((teammate, index) => (
+                    <View 
+                      key={teammate.userId} 
+                      className="w-6 h-6 bg-white/20 rounded-full border border-white/40"
+                      style={{ marginLeft: index > 0 ? -8 : 0 }}
+                    />
+                  ))}
+                </View>
+                <Text className="text-white font-inter text-xs ml-2">
+                  {selectedTeammates.length > 0 
+                    ? `Selected: ${selectedTeammates.length}` 
+                    : teammates.length > 3 ? `+${teammates.length - 3} more` : 'Add More'}
+                </Text>
               </Pressable>
+            ) : (
+              <Text className="text-white/60 font-inter text-xs">No teammates</Text>
             )}
           </View>
-          
-          {/* Show error details if there's an error */}
-          {teammatesError && (
-            <View className="bg-red-50 p-3 rounded-lg mb-3">
-              <Text className="text-red-700 font-inter text-sm">{teammatesError}</Text>
-              <Text className="text-red-600 font-inter text-xs mt-1">
-                Check console for detailed error information
-              </Text>
-            </View>
-          )}
-          
-          {selectedTeammates.length > 0 && (
-            <View className="flex-row flex-wrap gap-2">
-              {selectedTeammates.map(userId => {
-                const teammate = teammates.find(t => t.userId === userId);
-                const profile = teammate?.profile;
-                const name = profile 
-                  ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email
-                  : 'Unknown';
-                
-                return (
-                  <View key={userId} className="bg-gray-100 px-3 py-1 rounded-full flex-row items-center">
-                    <UserIcon size={12} color="#6B7280" />
-                    <Text className="text-gray-700 font-inter text-sm ml-1">{name}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          )}
         </View>
-      )}
+      </View>
 
-      {/* Teammate Selection Modal */}
-      <Modal
-        visible={showTeammateModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={handleCloseTeammateModal}
-      >
-        <TouchableWithoutFeedback onPress={handleCloseTeammateModal}>
-          <View className="flex-1 bg-black/50 justify-end">
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View className="bg-white rounded-t-2xl p-6 max-h-80">
-                <View className="flex-row items-center justify-between mb-4">
-                  <Text className="text-gray-900 font-inter text-lg font-semibold">
-                    Filled out by teammates
-                  </Text>
-                  <Pressable onPress={handleCloseTeammateModal}>
-                    <XIcon size={24} color="#6B7280" />
-                  </Pressable>
-                </View>
-                
-                <Text className="text-gray-600 font-inter text-sm mb-4">
-                  {teammates.length} teammate{teammates.length === 1 ? '' : 's'} {teammates.length === 1 ? 'has' : 'have'} been assigned to this form
-                </Text>
-
-                <ScrollView className="max-h-64">
-                  {teammates.map(teammate => {
-                    const profile = teammate.profile;
-                    const name = profile 
-                      ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email
-                      : 'Unknown';
-                    const isSelected = selectedTeammates.includes(teammate.userId);
-                    
-                    return (
-                      <Pressable
-                        key={teammate.userId}
-                        onPress={() => handleTeammateToggle(teammate.userId)}
-                        className="flex-row items-center py-3 border-b border-gray-100"
-                      >
-                        <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center mr-3">
-                          <UserIcon size={20} color="#6B7280" />
-                        </View>
-                        
-                        <View className="flex-1">
-                          <Text className="text-gray-900 font-inter text-base font-medium">
-                            {name}
-                          </Text>
-                          {profile?.email && (
-                            <Text className="text-gray-500 font-inter text-sm">
-                              {profile.email}
-                            </Text>
-                          )}
-                        </View>
-                        
-                        <View className={`w-5 h-5 rounded border-2 items-center justify-center ${
-                          isSelected ? 'bg-[#FF6551] border-[#FF6551]' : 'border-gray-300'
-                        }`}>
-                          {isSelected && (
-                            <View className="w-2 h-2 bg-white rounded-full" />
-                          )}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-                
-                <View className="flex-row justify-end gap-3 mt-4">
-                  <Pressable
-                    onPress={handleCloseTeammateModal}
-                    className="bg-gray-200 px-6 py-3 rounded-full"
-                  >
-                    <Text className="text-gray-700 font-inter font-medium">Cancel</Text>
-                  </Pressable>
-                  
-                  <Pressable
-                    onPress={handleCloseTeammateModal}
-                    className="bg-[#FF6551] px-6 py-3 rounded-full"
-                  >
-                    <Text className="text-white font-inter font-medium">Done</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Questions */}
+      {/* Form Questions - Fixed clipping with proper spacing */}
       <ScrollView 
-        className="flex-1 px-4 pt-4" 
-        contentContainerStyle={{ paddingBottom: 140 }}
+        className="flex-1" 
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 24, paddingBottom: 100 }}
         showsVerticalScrollIndicator={true}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets={false}
-        nestedScrollEnabled={false}
-        bounces={false}
+        bounces={true}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View>
-            {questions.map((question, index) => (
-              <QuestionComponent
-                key={`question-${question.id}-${isReadOnly}`}
-                question={question}
-                index={index + 1}
-                questionId={question.id}
-                onAnswerChange={handleAnswerChange}
-                initialValue={''}
-                isReadOnly={isReadOnly}
-              />
-            ))}
-          </View>
-        </TouchableWithoutFeedback>
+        {questions.map((question, index) => (
+          <QuestionComponent
+            key={question.id}
+            question={question}
+            index={index + 1}
+            questionId={question.id}
+            isReadOnly={isReadOnly}
+          />
+        ))}
       </ScrollView>
-
-      {/* Action Buttons - Fixed at bottom */}
-      <View className="bg-white px-4 py-4 pb-8 border-t border-gray-100 shadow-lg">
-        <View className="flex-row justify-between">
-          {isReadOnly ? (
-            <View className="flex-1">
-              <Pressable
-                onPress={handleDiscard}
-                className="bg-[#FF6551] px-8 py-4 rounded-full flex-1 items-center"
-              >
-                <Text className="text-white font-inter font-medium">Back to Forms</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <>
-              <Pressable
-                onPress={handleDiscard}
-                className="bg-white border border-gray-300 px-8 py-4 rounded-full"
-              >
-                <Text className="text-gray-700 font-inter font-medium">Discard Changes</Text>
-              </Pressable>
-              
-              <Pressable
-                onPress={handleSubmit}
-                disabled={submitting}
-                className={`px-8 py-4 rounded-full ${
-                  submitting ? 'bg-gray-400' : 'bg-[#FF6551]'
-                }`}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <Text className="text-white font-inter font-medium">
-                    {selectedTeammates.length > 0 
-                      ? `Submit for ${selectedTeammates.length + 1} people`
-                      : 'Submit Form'
-                    }
-                  </Text>
-                )}
-              </Pressable>
-            </>
-          )}
+      
+      {/* Bottom Actions - Fixed positioning */}
+      <View className="px-4 pb-8 pt-4 bg-white border-t border-gray-100">
+        <View className="flex-row gap-3">
+          <Pressable
+            className="flex-1 bg-white border border-gray-300 rounded-full py-4 items-center"
+            onPress={() => router.back()}
+            disabled={submitting}
+          >
+            <Text className="text-gray-700 font-inter font-medium">Discard Changes</Text>
+          </Pressable>
+          
+          <Pressable
+            className={`flex-1 rounded-full py-4 items-center ${
+              submitting || isReadOnly 
+                ? 'bg-gray-400' 
+                : 'bg-[#FF6551]'
+            }`}
+            onPress={handleSubmit}
+            disabled={isReadOnly || submitting}
+          >
+            <Text className="text-white font-inter font-medium">
+              {submitting 
+                ? 'Submitting...' 
+                : selectedTeammates.length > 0 
+                  ? `Submit for ${selectedTeammates.length + 1} people`
+                  : 'Submit Form'}
+            </Text>
+          </Pressable>
         </View>
       </View>
-    </View>
-  );
-};
 
-// Simple Text Input - Zero parent interaction during typing
-const SimpleTextInput = ({ questionId, placeholder, isReadOnly }: {
-  questionId: string;
-  placeholder: string;
-  isReadOnly: boolean;
-}) => {
-  const [text, setText] = React.useState('');
-  
-  // Store the value in module-level storage so parent can access it on submit
-  React.useEffect(() => {
-    formAnswersStorage.set(questionId, text);
-  }, [text, questionId]);
-
-  return (
-    <TextInput
-      className={`border border-gray-300 rounded-lg px-4 py-3 font-inter text-base ${
-        isReadOnly ? 'bg-gray-100 text-gray-700' : 'bg-white'
-      }`}
-      placeholder={placeholder}
-      value={text}
-      onChangeText={setText}
-      editable={!isReadOnly}
-      multiline={false}
-    />
-  );
-};
-
-// Question Component
-const QuestionComponent = React.memo(({ 
-  question, 
-  index, 
-  questionId,
-  onAnswerChange,
-  initialValue,
-  isReadOnly = false
-}: { 
-  question: FormQuestion; 
-  index: number; 
-  questionId: string;
-  onAnswerChange: (questionId: string, answer: any) => void;
-  initialValue?: any;
-  isReadOnly?: boolean;
-}) => {
-  const renderCountRef = React.useRef(0);
-  renderCountRef.current++;
-  
-  // Local state for non-text inputs
-  const [localAnswer, setLocalAnswer] = React.useState<any>(null);
-  const [localMultipleAnswer, setLocalMultipleAnswer] = React.useState<string[]>([]);
-  
-  console.log(`🔄 QuestionComponent render #${renderCountRef.current} for question ${questionId}:`, {
-    questionText: question.question_text.substring(0, 30),
-    initialValue,
-    isReadOnly
-  });
-
-  const questionType = mapQuestionType(question.question_type, question.options);
-
-  const handleAnswer = React.useCallback((newAnswer: any) => {
-    if (isReadOnly) return;
-    console.log(`📝 QuestionComponent handleAnswer for ${questionId}:`, newAnswer);
-    setLocalAnswer(newAnswer);
-    onAnswerChange(questionId, newAnswer);
-  }, [questionId, onAnswerChange, isReadOnly]);
-
-  // For non-text inputs, use parent state
-  const answer = initialValue || null;
-  const multipleAnswer = Array.isArray(initialValue) ? initialValue : [];
-
-  const handleMultipleAnswer = (option: string) => {
-    if (isReadOnly) return;
-    const newAnswer = localMultipleAnswer.includes(option)
-      ? localMultipleAnswer.filter(item => item !== option)
-      : [...localMultipleAnswer, option];
-    setLocalMultipleAnswer(newAnswer);
-    onAnswerChange(questionId, newAnswer);
-  };
-
-  return (
-    <View className={`rounded-lg p-4 mb-4 shadow-sm ${isReadOnly ? 'bg-gray-50' : 'bg-white'}`}>
-      <View className="mb-4">
-        <Text className="text-gray-500 font-inter text-sm mb-2">Question {index}</Text>
-        <Text className="text-gray-900 font-inter text-base font-medium">
-          {question.question_text}
-          {question.is_required && !isReadOnly && <Text className="text-red-500"> *</Text>}
-        </Text>
-      </View>
-
-      {/* Short Text Input */}
-      {questionType === 'short_text' && (
-        <SimpleTextInput
-          questionId={questionId}
-          placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
-          isReadOnly={isReadOnly}
-        />
-      )}
-
-      {/* Long Text Input */}
-      {questionType === 'long_text' && (
-        <SimpleTextInput
-          questionId={questionId}
-          placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
-          isReadOnly={isReadOnly}
-        />
-      )}
-
-      {/* Single Select (Radio Buttons) */}
-      {questionType === 'single_select' && (
-        <View className="space-y-3">
-          {/* Boolean questions */}
-          {question.question_type === 'boolean' && (
-            <>
-              <Pressable
-                onPress={() => handleAnswer(true)}
-                className="flex-row items-center py-2"
-                disabled={isReadOnly}
+      {/* Teammates Selection Modal */}
+      <Modal
+        visible={showTeammatesModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowTeammatesModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-center items-center px-4">
+          <View className="bg-white rounded-2xl p-6 w-full max-w-md">
+            {/* Modal Header */}
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-gray-900 font-inter text-lg font-semibold">
+                Filled out by teammates
+              </Text>
+              <Pressable 
+                onPress={() => setShowTeammatesModal(false)}
+                className="w-8 h-8 items-center justify-center"
               >
-                <View className={`w-5 h-5 rounded-full border-2 mr-3 items-center justify-center ${
-                  localAnswer === true ? 'bg-[#FF6551] border-[#FF6551]' : 'border-gray-300'
-                }`}>
-                  {localAnswer === true && (
-                    <View className="w-2 h-2 bg-white rounded-full" />
-                  )}
-                </View>
-                <Text className={`font-inter text-base ${isReadOnly ? 'text-gray-600' : 'text-gray-900'}`}>
-                  Yes
-                </Text>
+                <Text className="text-gray-400 font-inter text-2xl">×</Text>
               </Pressable>
-              
-              <Pressable
-                onPress={() => handleAnswer(false)}
-                className="flex-row items-center py-2"
-                disabled={isReadOnly}
-              >
-                <View className={`w-5 h-5 rounded-full border-2 mr-3 items-center justify-center ${
-                  localAnswer === false ? 'bg-[#FF6551] border-[#FF6551]' : 'border-gray-300'
-                }`}>
-                  {localAnswer === false && (
-                    <View className="w-2 h-2 bg-white rounded-full" />
-                  )}
-                </View>
-                <Text className={`font-inter text-base ${isReadOnly ? 'text-gray-600' : 'text-gray-900'}`}>
-                  No
-                </Text>
-              </Pressable>
-            </>
-          )}
-
-          {/* Rating questions */}
-          {question.question_type === 'rating' && (
-            <View className="flex-row justify-between items-center py-2">
-              {[1, 2, 3, 4, 5].map((rating) => (
-                <Pressable
-                  key={rating}
-                  onPress={() => handleAnswer(rating)}
-                  className={`w-10 h-10 rounded-full border-2 items-center justify-center ${
-                    localAnswer === rating ? 'bg-[#FF6551] border-[#FF6551]' : 'border-gray-300'
-                  }`}
-                  disabled={isReadOnly}
-                >
-                  <Text className={`font-inter text-base font-medium ${
-                    localAnswer === rating ? 'text-white' : 'text-gray-600'
-                  }`}>
-                    {rating}
-                  </Text>
-                </Pressable>
-              ))}
             </View>
-          )}
 
-          {/* Multiple choice questions with text options */}
-          {question.question_type === 'multiple_choice' && hasTextOptions(question) && (
-            <View className="space-y-3">
-              {question.options && Array.isArray(question.options) && (question.options as string[]).map((option: string, idx: number) => (
+            {/* Teammates List */}
+            <ScrollView className="max-h-80 mb-6">
+              {teammates.map((teammate) => (
                 <Pressable
-                  key={idx}
-                  onPress={() => handleAnswer(option)}
-                  className="flex-row items-center py-2"
-                  disabled={isReadOnly}
+                  key={teammate.userId}
+                  className="flex-row items-center py-3 px-2"
+                  onPress={() => {
+                    setSelectedTeammates(prev => 
+                      prev.includes(teammate.userId)
+                        ? prev.filter(id => id !== teammate.userId)
+                        : [...prev, teammate.userId]
+                    );
+                  }}
                 >
-                  <View className={`w-5 h-5 rounded-full border-2 mr-3 items-center justify-center ${
-                    localAnswer === option ? 'bg-[#FF6551] border-[#FF6551]' : 'border-gray-300'
+                  {/* Checkbox */}
+                  <View className={`w-5 h-5 border-2 rounded mr-3 items-center justify-center ${
+                    selectedTeammates.includes(teammate.userId) 
+                      ? 'bg-[#FF6551] border-[#FF6551]' 
+                      : 'border-gray-300 bg-white'
                   }`}>
-                    {localAnswer === option && (
-                      <View className="w-2 h-2 bg-white rounded-full" />
+                    {selectedTeammates.includes(teammate.userId) && (
+                      <Text className="text-white font-inter text-xs">✓</Text>
                     )}
                   </View>
-                  <Text className={`font-inter text-base ${isReadOnly ? 'text-gray-600' : 'text-gray-900'}`}>
-                    {option}
+
+                  {/* Profile Picture */}
+                  <View className="w-12 h-12 bg-gray-200 rounded-full mr-4 items-center justify-center">
+                    <Text className="text-gray-600 font-inter text-lg font-semibold">
+                      {teammate.profile?.first_name?.[0]?.toUpperCase() || '?'}
+                    </Text>
+                  </View>
+
+                  {/* Name */}
+                  <Text className="text-gray-900 font-inter text-base flex-1">
+                    {teammate.profile?.first_name} {teammate.profile?.last_name}
                   </Text>
                 </Pressable>
               ))}
-            </View>
-          )}
-        </View>
-      )}
+            </ScrollView>
 
-      {/* Multiple Select (Checkboxes) */}
-      {questionType === 'multiple_select' && hasTextOptions(question) && (
-        <View className="space-y-3">
-          {question.options && Array.isArray(question.options) && (question.options as string[]).map((option: string, idx: number) => (
+            {/* Add Teammates Button */}
             <Pressable
-              key={idx}
-              onPress={() => handleMultipleAnswer(option)}
-              className="flex-row items-center py-2"
-              disabled={isReadOnly}
+              className="bg-[#FF6551] rounded-full py-4 items-center"
+              onPress={() => setShowTeammatesModal(false)}
             >
-              <View className={`w-5 h-5 rounded border-2 mr-3 items-center justify-center ${
-                multipleAnswer.includes(option) ? 'bg-[#FF6551] border-[#FF6551]' : 'border-gray-300'
-              }`}>
-                {multipleAnswer.includes(option) && (
-                  <Text className="text-white font-inter text-xs">✓</Text>
-                )}
-              </View>
-              <Text className={`font-inter text-base ${isReadOnly ? 'text-gray-600' : 'text-gray-900'}`}>
-                {option}
+              <Text className="text-white font-inter font-medium text-base">
+                Add Teammates ({selectedTeammates.length})
               </Text>
             </Pressable>
-          ))}
+          </View>
         </View>
-      )}
-
-      {/* Composite Questions */}
-      {questionType === 'composite' && (
-        <View className="space-y-3">
-          {(() => {
-            try {
-              const subQuestionsJson = question.sub_questions;
-              const subQuestionsString = typeof subQuestionsJson === 'string' ? subQuestionsJson : '[]';
-              const subQuestions = JSON.parse(subQuestionsString);
-              return subQuestions.map((subQ: any, idx: number) => (
-                <View key={idx} className="bg-gray-50 rounded-lg p-4">
-                  <Text className="text-gray-700 font-inter text-sm mb-2">
-                    {subQ.question}
-                  </Text>
-                  <SimpleTextInput
-                    questionId={`sub_${idx}`}
-                    placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
-                    isReadOnly={isReadOnly}
-                  />
-                </View>
-              ));
-            } catch (error) {
-              console.error('Error parsing sub questions:', error);
-              return (
-                <View className="bg-gray-50 rounded-lg p-4">
-                  <Text className="text-gray-600 font-inter text-sm mb-3">
-                    Composite question (unable to load sub-questions)
-                  </Text>
-                  <SimpleTextInput
-                    questionId={`composite_${question.id}`}
-                    placeholder={isReadOnly ? 'No answer provided' : 'Type your answer...'}
-                    isReadOnly={isReadOnly}
-                  />
-                </View>
-              );
-            }
-          })()}
-        </View>
-      )}
+      </Modal>
     </View>
   );
-});
+};
 
 export default FormDetailsScreen; 

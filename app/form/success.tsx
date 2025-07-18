@@ -7,8 +7,8 @@ const FormSuccessScreen = () => {
   const router = useRouter();
 
   const handleDone = () => {
-    // Simply go back to the previous screen (which should be the dashboard)
-    router.back();
+    // Navigate to dashboard - use replace to clear the navigation stack
+    router.replace('/dashboard');
   };
 
   return (

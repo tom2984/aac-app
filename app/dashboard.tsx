@@ -105,67 +105,41 @@ interface FormQuestionsProps {
   questions: Question[];
 }
 
-const FormQuestions = ({ questions, onAnswersChange }: FormQuestionsProps & { onAnswersChange: (answers: { [id: string]: string }) => void }) => {
-  const [answers, setAnswers] = React.useState<{ [id: string]: string }>({});
-
-  const handleTextChange = React.useCallback((id: string, text: string) => {
-    setAnswers(prevAnswers => {
-      const newAnswers = { ...prevAnswers, [id]: text };
-      onAnswersChange(newAnswers);
-      return newAnswers;
-    });
-  }, [onAnswersChange]);
-
-  const handleSelect = React.useCallback((id: string, option: string) => {
-    setAnswers(prevAnswers => {
-      const newAnswers = { ...prevAnswers, [id]: option };
-      onAnswersChange(newAnswers);
-      return newAnswers;
-    });
-  }, [onAnswersChange]);
-
+// ULTRA SIMPLE - hardcoded inputs for testing
+const FormQuestions = () => {
   return (
     <View className="px-4 pt-4 pb-2">
-      {questions.map((q, idx) => (
-        <View key={q.id} className="mb-4">
-          <Text className="font-inter text-xs text-[#A1A1AA] mb-1">Question {idx + 1}</Text>
-          <View className="bg-white rounded-lg border border-[#E5E7EB] p-4">
-            <Text className="font-inter font-semibold text-[16px] text-[#272937] mb-2">
-              {q.label}
-              {q.required && <Text className="text-[#FF6551]"> *</Text>}
-            </Text>
-            {q.type === 'short_text' && (
-              <TextInput
-                className="font-inter text-[14px] text-[#A1A1AA] bg-transparent border-0 p-0 min-h-[48px]"
-                placeholder="Type your answer..."
-                placeholderTextColor="#A1A1AA"
-                multiline
-                value={answers[q.id] || ''}
-                onChangeText={text => handleTextChange(q.id, text)}
-                style={{ lineHeight: 20, letterSpacing: -0.1 }}
-              />
-            )}
-            {q.type === 'single_select' && q.options && (
-              <View className="mt-2 gap-3">
-                {q.options.map(option => (
-                  <Pressable
-                    key={option}
-                    className="flex-row items-center mb-1"
-                    onPress={() => handleSelect(q.id, option)}
-                    accessibilityLabel={option}
-                    tabIndex={0}
-                  >
-                    <View className={`w-5 h-5 rounded-full border-2 mr-3 ${answers[q.id] === option ? 'border-[#FF6551] bg-[#FF6551]' : 'border-[#D1D5DB] bg-white' } items-center justify-center`}>
-                      {answers[q.id] === option && <View className="w-2.5 h-2.5 rounded-full bg-white" />}
-                    </View>
-                    <Text className="font-inter text-[14px] text-[#272937]">{option}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
+      <View className="mb-4">
+        <Text className="font-inter text-xs text-[#A1A1AA] mb-1">Question 1</Text>
+        <View className="bg-white rounded-lg border border-[#E5E7EB] p-4">
+          <Text className="font-inter font-semibold text-[16px] text-[#272937] mb-2">
+            What main problem of this month?
+          </Text>
+          <TextInput
+            className="font-inter text-[14px] text-[#272937] bg-transparent border-0 p-0 min-h-[48px]"
+            placeholder="Type your answer..."
+            placeholderTextColor="#A1A1AA"
+            multiline
+            style={{ lineHeight: 20, letterSpacing: -0.1 }}
+          />
         </View>
-      ))}
+      </View>
+      
+      <View className="mb-4">
+        <Text className="font-inter text-xs text-[#A1A1AA] mb-1">Question 2</Text>
+        <View className="bg-white rounded-lg border border-[#E5E7EB] p-4">
+          <Text className="font-inter font-semibold text-[16px] text-[#272937] mb-2">
+            How much hours you spent today?
+          </Text>
+          <TextInput
+            className="font-inter text-[14px] text-[#272937] bg-transparent border-0 p-0 min-h-[48px]"
+            placeholder="Type your answer..."
+            placeholderTextColor="#A1A1AA"
+            multiline
+            style={{ lineHeight: 20, letterSpacing: -0.1 }}
+          />
+        </View>
+      </View>
     </View>
   );
 };
@@ -316,6 +290,25 @@ const mockTeammates = [
   { id: '4', name: 'Cody Fisher', avatar: 'https://randomuser.me/api/portraits/women/44.jpg' },
 ];
 
+// Mock questions data - MOVED OUTSIDE COMPONENT to prevent recreation
+const mockQuestions: Question[] = [
+  {
+    id: 'q1',
+    type: 'short_text',
+    label: 'What main problem of this month?',
+    required: false,
+    value: '',
+  },
+  {
+    id: 'q2',
+    type: 'single_select',
+    label: 'How much hours you spent today?',
+    required: true,
+    options: ['2-4 hours', '4-6 hours', '6-8 hours'],
+    value: '',
+  },
+];
+
 // AddTeammateSheet component
 interface AddTeammateSheetProps {
   visible: boolean;
@@ -386,16 +379,12 @@ const FormsListScreen = () => {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [selectedForm, setSelectedForm] = useState<DashboardFormType | null>(null);
   const [formSubmitted, setFormSubmitted] = useState(false);
-  const [answers, setAnswers] = useState<{ [id: string]: string }>({});
   const [showAddTeammate, setShowAddTeammate] = useState(false);
   const [selectedTeammates, setSelectedTeammates] = useState<string[]>([]);
   const [showAnnualLeave, setShowAnnualLeave] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Memoized callback to prevent unnecessary re-renders
-  const handleAnswersChange = React.useCallback((newAnswers: { [id: string]: string }) => {
-    setAnswers(newAnswers);
-  }, []);
+  // Removed answer change handling - forms are now self-contained
 
   // Convert assigned forms to dashboard format
   const convertToDashboardFormat = async (assignedForms: AssignedForm[]): Promise<DashboardFormType[]> => {
@@ -436,36 +425,8 @@ const FormsListScreen = () => {
     }));
   };
 
-  // Mock questions data (TODO: make this dynamic based on selected form)
-  const mockQuestions: Question[] = [
-    {
-      id: 'q1',
-      type: 'short_text',
-      label: 'What main problem of this month?',
-      required: false,
-      value: '',
-    },
-    {
-      id: 'q2',
-      type: 'single_select',
-      label: 'How much hours you spent today?',
-      required: true,
-      options: ['2-4 hours', '4-6 hours', '6-8 hours'],
-      value: '',
-    },
-  ];
-
-  // Validation: all required questions must be answered
-  const allQuestions = mockQuestions;
-  const isFormValid = allQuestions.every((q: Question) => {
-    if (q.type === 'short_text') {
-      return (answers[q.id] || '').trim().length > 0;
-    }
-    if (q.type === 'single_select') {
-      return !!answers[q.id];
-    }
-    return true;
-  });
+  // Simplified validation - just enable submit for now
+  const isFormValid = true;
 
   // Load data on component mount
   useEffect(() => {
@@ -576,7 +537,6 @@ const FormsListScreen = () => {
           onPress={() => {
             setFormSubmitted(false);
             setSelectedForm(null);
-            setAnswers({});
           }}
           accessibilityLabel="Done"
           tabIndex={0}
@@ -591,7 +551,7 @@ const FormsListScreen = () => {
     return (
       <View className="flex-1" style={{ backgroundColor: bgColor }}>
         <FormHeader form={selectedForm} onBack={() => setSelectedForm(null)} onShowAddTeammate={() => setShowAddTeammate(true)} />
-        <FormQuestions questions={mockQuestions} onAnswersChange={handleAnswersChange} />
+        <FormQuestions />
         <FormFooter
           onDiscard={() => setSelectedForm(null)}
           onSubmit={() => setFormSubmitted(true)}
