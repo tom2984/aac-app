@@ -3,8 +3,14 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { calculateTimeRemaining, fetchFormTeammates, getCurrentUser, supabase, type AssignedForm, type FormQuestion, type FormTeammate } from '../../lib/supabase';
 
-// Module-level storage for form answers
+// User and form-specific storage for form answers
 const formAnswersStorage = new Map<string, string>();
+
+// Function to clear storage for a new form/user combination
+const clearFormStorage = () => {
+  console.log('🧹 Clearing form answers storage');
+  formAnswersStorage.clear();
+};
 
 // Extended question types to match the 5 types shown in the design
 type ExtendedQuestionType = 'short_text' | 'long_text' | 'single_select' | 'multiple_select' | 'composite';
@@ -709,6 +715,10 @@ const FormDetailsScreen = () => {
       
       try {
         console.log('📡 Starting fetch...');
+        
+        // Clear any existing form answers to prevent cross-user contamination
+        clearFormStorage();
+        
         setLoading(true);
         setError(null);
 
@@ -780,50 +790,58 @@ const FormDetailsScreen = () => {
         // Load previously submitted answers if form is completed
         if (isCompleted && assignment.forms && currentUserData) {
           console.log('📋 Loading submitted answers for completed form...');
-          try {
-            const { data: formResponseData, error: responseError } = await supabase
-              .from('form_responses')
-              .select(`
-                id,
-                form_response_answers (
-                  question_id,
-                  answer
-                )
-              `)
-              .eq('form_id', assignment.forms.id)
-              .eq('respondent_id', assignment.employee_id)
-              .eq('status', 'submitted')
-              .order('submitted_at', { ascending: false })
-              .limit(1)
-              .single();
+          console.log('🔍 Looking for answers for user:', currentUserData.id, 'assignment employee:', assignment.employee_id);
+          
+          // Ensure we're only loading answers for the current user viewing the form
+          if (currentUserData.id !== assignment.employee_id) {
+            console.log('⚠️ Current user is not the assignment employee - not loading answers');
+          } else {
+            try {
+              const { data: formResponseData, error: responseError } = await supabase
+                .from('form_responses')
+                .select(`
+                  id,
+                  form_response_answers (
+                    question_id,
+                    answer
+                  )
+                `)
+                .eq('form_id', assignment.forms.id)
+                .eq('respondent_id', currentUserData.id) // Use current user ID to be extra sure
+                .eq('status', 'submitted')
+                .order('submitted_at', { ascending: false })
+                .limit(1)
+                .single();
 
-            if (responseError) {
-              console.error('❌ Error loading submitted answers:', responseError);
-            } else if (formResponseData && formResponseData.form_response_answers) {
-              console.log('✅ Found submitted answers:', formResponseData.form_response_answers.length);
-              
-              // Populate formAnswersStorage with submitted answers
-              formResponseData.form_response_answers.forEach((answerRecord: any) => {
-                const questionId = answerRecord.question_id;
-                const answer = answerRecord.answer;
+              if (responseError) {
+                console.error('❌ Error loading submitted answers:', responseError);
+              } else if (formResponseData && formResponseData.form_response_answers) {
+                console.log('✅ Found submitted answers:', formResponseData.form_response_answers.length);
+                console.log('🔍 Loading answers for current user only:', currentUserData.id);
                 
-                if (typeof answer === 'object' && answer !== null) {
-                  // Handle composite question answers (stored as JSON object)
-                  Object.entries(answer).forEach(([subQuestionText, subAnswer], index) => {
-                    formAnswersStorage.set(`${questionId}_sub_${index}`, String(subAnswer));
-                  });
-                } else {
-                  // Handle regular question answers
-                  formAnswersStorage.set(questionId, String(answer));
-                }
-              });
-              
-              console.log('✅ Submitted answers loaded into storage');
-            } else {
-              console.log('ℹ️ No submitted answers found for this form');
+                // Populate formAnswersStorage with submitted answers for current user
+                formResponseData.form_response_answers.forEach((answerRecord: any) => {
+                  const questionId = answerRecord.question_id;
+                  const answer = answerRecord.answer;
+                  
+                  if (typeof answer === 'object' && answer !== null) {
+                    // Handle composite question answers (stored as JSON object)
+                    Object.entries(answer).forEach(([subQuestionText, subAnswer], index) => {
+                      formAnswersStorage.set(`${questionId}_sub_${index}`, String(subAnswer));
+                    });
+                  } else {
+                    // Handle regular question answers
+                    formAnswersStorage.set(questionId, String(answer));
+                  }
+                });
+                
+                console.log('✅ Submitted answers loaded into storage for current user');
+              } else {
+                console.log('ℹ️ No submitted answers found for this form');
+              }
+            } catch (error) {
+              console.error('💥 Error loading submitted answers:', error);
             }
-          } catch (error) {
-            console.error('💥 Error loading submitted answers:', error);
           }
         }
 
@@ -919,15 +937,15 @@ const FormDetailsScreen = () => {
           </Text>
           <Text className="text-white/80 font-inter text-sm mb-3">
             {form.description || 'Weather is affects on the work'}
-          </Text>
+            </Text>
           
-          <View className="flex-row items-center justify-between mb-3">
+        <View className="flex-row items-center justify-between mb-3">
             <View>
               <Text className="text-white/60 font-inter text-xs">Created by</Text>
               <Text className="text-white font-inter text-sm">
                 {creator?.first_name} {creator?.last_name}
-              </Text>
-            </View>
+            </Text>
+          </View>
             <View>
               <Text className="text-white/60 font-inter text-xs">Last Update</Text>
               <Text className="text-white font-inter text-sm">
@@ -936,16 +954,16 @@ const FormDetailsScreen = () => {
                   month: '2-digit', 
                   year: 'numeric' 
                 })} 11:30AM
-              </Text>
-            </View>
-          </View>
-          
-          <View className="flex-row items-center">
+            </Text>
+        </View>
+      </View>
+
+              <View className="flex-row items-center">
             <Text className="text-white/60 font-inter text-xs mr-2">Filled out by teammates</Text>
             {teammatesLoading ? (
               <Text className="text-white/60 font-inter text-xs">Loading...</Text>
             ) : teammates.length > 0 ? (
-              <Pressable 
+              <Pressable
                 className="bg-[#FF6551] border border-white/20 rounded-full px-3 py-1 flex-row items-center"
                 onPress={() => setShowTeammatesModal(true)}
                 disabled={isReadOnly}
@@ -953,24 +971,24 @@ const FormDetailsScreen = () => {
                 <View className="flex-row -mr-1">
                   {teammates.slice(0, 3).map((teammate, index) => (
                     <View 
-                      key={teammate.userId} 
+                        key={teammate.userId}
                       className="w-6 h-6 bg-white/20 rounded-full border border-white/40"
                       style={{ marginLeft: index > 0 ? -8 : 0 }}
                     />
                   ))}
-                </View>
+                        </View>
                 <Text className="text-white font-inter text-xs ml-2">
                   {selectedTeammates.length > 0 
                     ? `Selected: ${selectedTeammates.length}` 
                     : teammates.length > 3 ? `+${teammates.length - 3} more` : 'Add More'}
-                </Text>
+                          </Text>
               </Pressable>
             ) : (
               <Text className="text-white/60 font-inter text-xs">No teammates</Text>
-            )}
-          </View>
-        </View>
-      </View>
+                          )}
+                        </View>
+                        </View>
+                </View>
 
       {/* Form Questions - Fixed clipping with proper spacing */}
       <ScrollView 
@@ -979,45 +997,45 @@ const FormDetailsScreen = () => {
         showsVerticalScrollIndicator={true}
         bounces={true}
       >
-        {questions.map((question, index) => (
-          <QuestionComponent
+            {questions.map((question, index) => (
+              <QuestionComponent
             key={question.id}
-            question={question}
-            index={index + 1}
-            questionId={question.id}
-            isReadOnly={isReadOnly}
-          />
-        ))}
+                question={question}
+                index={index + 1}
+                questionId={question.id}
+                isReadOnly={isReadOnly}
+              />
+            ))}
       </ScrollView>
-      
+
       {/* Bottom Actions - Fixed positioning */}
       <View className="px-4 pb-8 pt-4 bg-white border-t border-gray-100">
         <View className="flex-row gap-3">
-          <Pressable
+              <Pressable
             className="flex-1 bg-white border border-gray-300 rounded-full py-4 items-center"
             onPress={() => router.back()}
             disabled={submitting}
-          >
-            <Text className="text-gray-700 font-inter font-medium">Discard Changes</Text>
-          </Pressable>
-          
-          <Pressable
+              >
+                <Text className="text-gray-700 font-inter font-medium">Discard Changes</Text>
+              </Pressable>
+              
+              <Pressable
             className={`flex-1 rounded-full py-4 items-center ${
               submitting || isReadOnly 
                 ? 'bg-gray-400' 
                 : 'bg-[#FF6551]'
-            }`}
+                }`}
             onPress={handleSubmit}
             disabled={isReadOnly || submitting}
           >
-            <Text className="text-white font-inter font-medium">
+                  <Text className="text-white font-inter font-medium">
               {submitting 
                 ? 'Submitting...' 
                 : selectedTeammates.length > 0 
-                  ? `Submit for ${selectedTeammates.length + 1} people`
+                      ? `Submit for ${selectedTeammates.length + 1} people`
                   : 'Submit Form'}
-            </Text>
-          </Pressable>
+                  </Text>
+              </Pressable>
         </View>
       </View>
 
@@ -1034,19 +1052,19 @@ const FormDetailsScreen = () => {
             <View className="flex-row justify-between items-center mb-4">
               <Text className="text-gray-900 font-inter text-lg font-semibold">
                 Filled out by teammates
-              </Text>
-              <Pressable 
+        </Text>
+              <Pressable
                 onPress={() => setShowTeammatesModal(false)}
                 className="w-8 h-8 items-center justify-center"
               >
                 <Text className="text-gray-400 font-inter text-2xl">×</Text>
               </Pressable>
             </View>
-
+              
             {/* Teammates List */}
             <ScrollView className="max-h-80 mb-6">
               {teammates.map((teammate) => (
-                <Pressable
+              <Pressable
                   key={teammate.userId}
                   className="flex-row items-center py-3 px-2"
                   onPress={() => {
@@ -1056,24 +1074,24 @@ const FormDetailsScreen = () => {
                         : [...prev, teammate.userId]
                     );
                   }}
-                >
+              >
                   {/* Checkbox */}
                   <View className={`w-5 h-5 border-2 rounded mr-3 items-center justify-center ${
                     selectedTeammates.includes(teammate.userId) 
                       ? 'bg-[#FF6551] border-[#FF6551]' 
                       : 'border-gray-300 bg-white'
-                  }`}>
+                }`}>
                     {selectedTeammates.includes(teammate.userId) && (
                       <Text className="text-white font-inter text-xs">✓</Text>
-                    )}
-                  </View>
+                  )}
+                </View>
 
                   {/* Profile Picture */}
                   <View className="w-12 h-12 bg-gray-200 rounded-full mr-4 items-center justify-center">
                     <Text className="text-gray-600 font-inter text-lg font-semibold">
                       {teammate.profile?.first_name?.[0]?.toUpperCase() || '?'}
-                    </Text>
-                  </View>
+                  </Text>
+            </View>
 
                   {/* Name */}
                   <Text className="text-gray-900 font-inter text-base flex-1">
@@ -1092,11 +1110,11 @@ const FormDetailsScreen = () => {
                 Add Teammates ({selectedTeammates.length})
               </Text>
             </Pressable>
-          </View>
         </View>
+                </View>
       </Modal>
-    </View>
-  );
+                </View>
+              );
 };
 
 export default FormDetailsScreen; 

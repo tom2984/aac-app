@@ -111,19 +111,19 @@ const FormQuestions = () => {
     <View className="px-4 pt-4 pb-2">
       <View className="mb-4">
         <Text className="font-inter text-xs text-[#A1A1AA] mb-1">Question 1</Text>
-        <View className="bg-white rounded-lg border border-[#E5E7EB] p-4">
-          <Text className="font-inter font-semibold text-[16px] text-[#272937] mb-2">
+          <View className="bg-white rounded-lg border border-[#E5E7EB] p-4">
+            <Text className="font-inter font-semibold text-[16px] text-[#272937] mb-2">
             What main problem of this month?
-          </Text>
-          <TextInput
+            </Text>
+              <TextInput
             className="font-inter text-[14px] text-[#272937] bg-transparent border-0 p-0 min-h-[48px]"
-            placeholder="Type your answer..."
-            placeholderTextColor="#A1A1AA"
-            multiline
-            style={{ lineHeight: 20, letterSpacing: -0.1 }}
-          />
-        </View>
-      </View>
+                placeholder="Type your answer..."
+                placeholderTextColor="#A1A1AA"
+                multiline
+                style={{ lineHeight: 20, letterSpacing: -0.1 }}
+              />
+                    </View>
+              </View>
       
       <View className="mb-4">
         <Text className="font-inter text-xs text-[#A1A1AA] mb-1">Question 2</Text>
