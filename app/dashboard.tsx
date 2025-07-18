@@ -1,9 +1,77 @@
 import { router } from 'expo-router';
-import { ArrowLeftIcon, CalendarIcon, CheckIcon, EllipsisVerticalIcon, EyeIcon, MoreHorizontalIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, CalendarIcon, CheckIcon, ChevronDownIcon, EllipsisVerticalIcon, EyeIcon, LogOutIcon, MoreHorizontalIcon } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Modal, Pressable, Text, TextInput, TouchableWithoutFeedback, View } from 'react-native';
 import AnnualLeaveCalendarModal from '../components/AnnualLeaveCalendarModal';
-import { calculateTimeRemaining, fetchAssignedForms, formatDate, getCurrentUser, type AssignedForm, type Profile } from '../lib/supabase';
+import { calculateTimeRemaining, fetchAssignedForms, formatDate, getCurrentUser, supabase, type AssignedForm, type Profile } from '../lib/supabase';
+
+// Status filter options
+const STATUS_FILTERS = [
+  { value: 'all', label: 'All Forms' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'on_leave', label: 'On Leave' },
+];
+
+// Status Dropdown Component
+const StatusDropdown = ({ selectedStatus, onStatusChange }: { selectedStatus: string; onStatusChange: (status: string) => void }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedFilter = STATUS_FILTERS.find(f => f.value === selectedStatus) || STATUS_FILTERS[0];
+
+  return (
+    <View className="relative">
+      <Pressable
+        className="flex-row items-center bg-white/20 px-3 py-2 rounded-lg"
+        onPress={() => setIsOpen(true)}
+        accessibilityLabel="Filter by status"
+        tabIndex={0}
+      >
+        <Text className="text-white font-inter font-medium text-sm mr-2">
+          {selectedFilter.label}
+        </Text>
+        <ChevronDownIcon color="white" size={16} />
+      </Pressable>
+
+      <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setIsOpen(false)}>
+          <View className="flex-1 bg-black/30 justify-center items-center px-4">
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View className="bg-white rounded-lg w-full max-w-xs">
+                <Text className="text-lg font-semibold text-gray-900 p-4 border-b border-gray-200">
+                  Filter by Status
+                </Text>
+                {STATUS_FILTERS.map((filter) => (
+                  <Pressable
+                    key={filter.value}
+                    className={`p-4 border-b border-gray-100 last:border-b-0 ${
+                      selectedStatus === filter.value ? 'bg-orange-50' : ''
+                    }`}
+                    onPress={() => {
+                      onStatusChange(filter.value);
+                      setIsOpen(false);
+                    }}
+                    accessibilityLabel={filter.label}
+                    tabIndex={0}
+                  >
+                    <Text className={`font-inter ${
+                      selectedStatus === filter.value 
+                        ? 'text-[#FF6551] font-semibold' 
+                        : 'text-gray-700'
+                    }`}>
+                      {filter.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </View>
+  );
+};
 
 // Type for dashboard form display
 interface DashboardFormType {
@@ -314,6 +382,7 @@ const FormsListScreen = () => {
   const [showAddTeammate, setShowAddTeammate] = useState(false);
   const [selectedTeammates, setSelectedTeammates] = useState<string[]>([]);
   const [showAnnualLeave, setShowAnnualLeave] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
 
   // Memoized callback to prevent unnecessary re-renders
   const handleAnswersChange = React.useCallback((newAnswers: { [id: string]: string }) => {
@@ -430,6 +499,11 @@ const FormsListScreen = () => {
     loadData();
   }, []);
 
+  // Filter forms based on selected status
+  const filteredForms = statusFilter === 'all' 
+    ? dashboardForms 
+    : dashboardForms.filter(form => form.status === statusFilter);
+
   // Loading state
   if (loading) {
     return (
@@ -530,7 +604,7 @@ const FormsListScreen = () => {
       {/* Header */}
       <View className="bg-[#FF6551] pt-20 pb-8 px-6 flex-row items-center justify-between">
         <Text className="text-white text-2xl font-bold font-inter">
-          All Forms {dashboardForms.length}
+          All Forms {filteredForms.length}
         </Text>
         <View className="flex-row items-center gap-3">
           <Pressable
@@ -542,23 +616,38 @@ const FormsListScreen = () => {
             <CalendarIcon color="white" size={20} />
             <Text className="text-white font-inter font-medium">Annual Leave</Text>
           </Pressable>
-
+          <StatusDropdown selectedStatus={statusFilter} onStatusChange={setStatusFilter} />
+          <Pressable
+            className="flex-row items-center gap-2"
+            accessibilityLabel="Logout"
+            tabIndex={0}
+            onPress={async () => {
+              await supabase.auth.signOut();
+              router.replace('/');
+            }}
+          >
+            <LogOutIcon color="white" size={20} />
+            <Text className="text-white font-inter font-medium">Logout</Text>
+          </Pressable>
         </View>
       </View>
 
       {/* Forms List */}
-      {dashboardForms.length === 0 ? (
+      {filteredForms.length === 0 ? (
         <View className="flex-1 justify-center items-center px-4">
           <Text className="text-gray-500 font-inter text-lg text-center mb-2">
-            No forms assigned yet
+            {statusFilter === 'all' ? 'No forms assigned yet' : `No ${STATUS_FILTERS.find(f => f.value === statusFilter)?.label.toLowerCase()} forms`}
           </Text>
           <Text className="text-gray-400 font-inter text-center">
-            Your admin will assign forms to you when available
+            {statusFilter === 'all' 
+              ? 'Your admin will assign forms to you when available'
+              : 'Try selecting a different status filter'
+            }
           </Text>
         </View>
       ) : (
         <FlatList
-          data={dashboardForms}
+          data={filteredForms}
           keyExtractor={item => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16 }}
           renderItem={({ item }) => {

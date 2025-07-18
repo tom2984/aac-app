@@ -413,12 +413,16 @@ export const getCurrentUser = async () => {
   }
 };
 
-// Utility function to format dates
+// Utility function to format dates in UK format (dd/mm/yyyy)
 export const formatDate = (dateString: string | null): string => {
   if (!dateString) return 'No date';
   
   try {
     const date = new Date(dateString);
+    // Ensure the date is valid
+    if (isNaN(date.getTime())) {
+      return 'Invalid date';
+    }
     return date.toLocaleDateString('en-GB', {
       year: 'numeric',
       month: '2-digit',
@@ -493,6 +497,42 @@ export const checkUserOnLeave = async (userId: string, checkDate: string): Promi
 // Function to save annual leave
 export const saveAnnualLeave = async (userId: string, startDate: string, endDate: string, reason?: string) => {
   try {
+    // Validate dates
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return { 
+        data: null, 
+        error: { message: 'Invalid date format provided' } 
+      };
+    }
+    
+    if (end < start) {
+      return { 
+        data: null, 
+        error: { message: 'End date cannot be before start date' } 
+      };
+    }
+
+    // Check for overlapping leave periods
+    const { data: existingLeave, error: checkError } = await supabase
+      .from('annual_leave')
+      .select('id, start_date, end_date')
+      .eq('employee_id', userId)
+      .eq('status', 'approved')
+      .or(`and(start_date.lte.${endDate},end_date.gte.${startDate})`);
+
+    if (checkError) {
+      console.error('Error checking for overlapping leave:', checkError);
+      // Continue with save, but log the error
+    } else if (existingLeave && existingLeave.length > 0) {
+      return { 
+        data: null, 
+        error: { message: 'You already have approved leave during this period' } 
+      };
+    }
+
     const { data, error } = await supabase
       .from('annual_leave')
       .insert({

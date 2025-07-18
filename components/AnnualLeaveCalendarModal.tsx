@@ -1,9 +1,9 @@
 import { Feather } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, Text, TouchableWithoutFeedback, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getCurrentUser, saveAnnualLeave } from '../lib/supabase';
+import { getCurrentUser, getUserAnnualLeave, saveAnnualLeave, type AnnualLeave } from '../lib/supabase';
 
 // Types for range
 export type DateRange = {
@@ -34,36 +34,60 @@ interface MarkedDates {
     endingDay?: boolean;
     color?: string;
     textColor?: string;
+    marked?: boolean;
+    dotColor?: string;
   };
 }
 
-const getMarkedDates = (range: DateRange): MarkedDates => {
-  if (!range.start) return {};
-  if (!range.end || range.start === range.end) {
-    return {
-      [range.start]: {
+const getMarkedDates = (range: DateRange, existingLeave: AnnualLeave[]): MarkedDates => {
+  const marked: MarkedDates = {};
+  
+  // Mark existing annual leave dates
+  existingLeave.forEach(leave => {
+    const start = new Date(leave.start_date);
+    const end = new Date(leave.end_date);
+    let current = new Date(start);
+    
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0];
+      marked[dateStr] = {
+        color: '#10B981', // Green for existing leave
+        textColor: '#fff',
+        startingDay: dateStr === leave.start_date,
+        endingDay: dateStr === leave.end_date,
+      };
+      current.setDate(current.getDate() + 1);
+    }
+  });
+  
+  // Mark new selection (override existing if overlapping)
+  if (range.start) {
+    if (!range.end || range.start === range.end) {
+      marked[range.start] = {
         startingDay: true,
         endingDay: true,
-        color: '#FF6B57',
+        color: '#FF6B57', // Orange for new selection
         textColor: '#fff',
-      },
-    };
+      };
+    } else {
+      // Range selection
+      const start = new Date(range.start);
+      const end = new Date(range.end);
+      let current = new Date(start);
+      
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        marked[dateStr] = {
+          color: '#FF6B57', // Orange for new selection
+          textColor: '#fff',
+          startingDay: dateStr === range.start,
+          endingDay: dateStr === range.end,
+        };
+        current.setDate(current.getDate() + 1);
+      }
+    }
   }
-  // Range
-  const marked: MarkedDates = {};
-  const start = new Date(range.start);
-  const end = new Date(range.end);
-  let current = new Date(start);
-  while (current <= end) {
-    const dateStr = current.toISOString().split('T')[0];
-    marked[dateStr] = {
-      color: '#FF6B57',
-      textColor: '#fff',
-      startingDay: dateStr === range.start,
-      endingDay: dateStr === range.end,
-    };
-    current.setDate(current.getDate() + 1);
-  }
+  
   return marked;
 };
 
@@ -76,7 +100,39 @@ const AnnualLeaveCalendarModal: React.FC<AnnualLeaveCalendarModalProps> = ({
   const [range, setRange] = useState<DateRange>(initialRange);
   const [selecting, setSelecting] = useState<'start' | 'end'>('start');
   const [saving, setSaving] = useState(false);
+  const [existingLeave, setExistingLeave] = useState<AnnualLeave[]>([]);
+  const [loading, setLoading] = useState(false);
   const insets = useSafeAreaInsets();
+
+  // Fetch existing annual leave when modal opens
+  useEffect(() => {
+    const fetchExistingLeave = async () => {
+      if (!visible) return;
+      
+      setLoading(true);
+      try {
+        const { user, error: userError } = await getCurrentUser();
+        if (userError || !user) {
+          console.error('Error getting current user:', userError);
+          return;
+        }
+
+        const { data: leave, error: leaveError } = await getUserAnnualLeave(user.id);
+        if (leaveError) {
+          console.error('Error fetching annual leave:', leaveError);
+          return;
+        }
+
+        setExistingLeave(leave || []);
+      } catch (error) {
+        console.error('Error fetching existing leave:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchExistingLeave();
+  }, [visible]);
 
   const handleDayPress = (day: CalendarDay) => {
     if (!range.start || (range.start && range.end)) {
@@ -129,7 +185,11 @@ const AnnualLeaveCalendarModal: React.FC<AnnualLeaveCalendarModalProps> = ({
         [
           {
             text: 'OK',
-            onPress: () => {
+            onPress: async () => {
+              // Refresh existing leave data
+              const { data: updatedLeave } = await getUserAnnualLeave(user.id);
+              setExistingLeave(updatedLeave || []);
+              
               onSave(range);
               handleClose();
             }
@@ -193,6 +253,18 @@ const AnnualLeaveCalendarModal: React.FC<AnnualLeaveCalendarModalProps> = ({
                   </Pressable>
                 </View>
 
+                {/* Legend */}
+                <View className="flex-row justify-center items-center gap-4 mb-3">
+                  <View className="flex-row items-center">
+                    <View className="w-4 h-4 rounded bg-[#10B981] mr-2" />
+                    <Text className="text-xs text-gray-600">Existing Leave</Text>
+                  </View>
+                  <View className="flex-row items-center">
+                    <View className="w-4 h-4 rounded bg-[#FF6B57] mr-2" />
+                    <Text className="text-xs text-gray-600">New Selection</Text>
+                  </View>
+                </View>
+
                 {/* Instructions */}
                 <Text className="text-sm text-gray-600 mb-4 text-center">
                   {!range.start 
@@ -203,31 +275,38 @@ const AnnualLeaveCalendarModal: React.FC<AnnualLeaveCalendarModalProps> = ({
                   }
                 </Text>
 
-                {/* Calendar */}
-                <Calendar
-                  current={range.start || undefined}
-                  markingType="period"
-                  markedDates={getMarkedDates(range)}
-                  onDayPress={handleDayPress}
-                  enableSwipeMonths
-                  theme={{
-                    todayTextColor: '#FF6551',
-                    arrowColor: '#FF6551',
-                    textDayFontWeight: '500',
-                    textMonthFontWeight: '700',
-                    textDayHeaderFontWeight: '600',
-                    backgroundColor: 'transparent',
-                    calendarBackground: 'transparent',
-                  }}
-                  style={{ borderRadius: 16 }}
-                  renderArrow={dir => (
-                    <Feather 
-                      name={dir === 'left' ? 'chevron-left' : 'chevron-right'} 
-                      size={20} 
-                      color="#FF6551" 
-                    />
-                  )}
-                />
+                {loading ? (
+                  <View className="flex-1 justify-center items-center py-20">
+                    <ActivityIndicator size="large" color="#FF6551" />
+                    <Text className="mt-2 text-gray-600">Loading existing leave...</Text>
+                  </View>
+                ) : (
+                  /* Calendar */
+                  <Calendar
+                    current={range.start || undefined}
+                    markingType="period"
+                    markedDates={getMarkedDates(range, existingLeave)}
+                    onDayPress={handleDayPress}
+                    enableSwipeMonths
+                    theme={{
+                      todayTextColor: '#FF6551',
+                      arrowColor: '#FF6551',
+                      textDayFontWeight: '500',
+                      textMonthFontWeight: '700',
+                      textDayHeaderFontWeight: '600',
+                      backgroundColor: 'transparent',
+                      calendarBackground: 'transparent',
+                    }}
+                    style={{ borderRadius: 16 }}
+                    renderArrow={dir => (
+                      <Feather 
+                        name={dir === 'left' ? 'chevron-left' : 'chevron-right'} 
+                        size={20} 
+                        color="#FF6551" 
+                      />
+                    )}
+                  />
+                )}
 
                 {/* Save button */}
                 <Pressable
