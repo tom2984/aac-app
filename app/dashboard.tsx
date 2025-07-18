@@ -5,33 +5,37 @@ import { ActivityIndicator, FlatList, Image, Modal, Pressable, Text, TextInput, 
 import AnnualLeaveCalendarModal from '../components/AnnualLeaveCalendarModal';
 import { calculateTimeRemaining, fetchAssignedForms, formatDate, getCurrentUser, supabase, type AssignedForm, type Profile } from '../lib/supabase';
 
-// Status filter options
+// Status filter options - updated to match actual form statuses
 const STATUS_FILTERS = [
   { value: 'all', label: 'All Forms' },
   { value: 'pending', label: 'Pending' },
-  { value: 'in_progress', label: 'In Progress' },
   { value: 'completed', label: 'Completed' },
   { value: 'overdue', label: 'Overdue' },
-  { value: 'on_leave', label: 'On Leave' },
+  { value: 'in_progress', label: 'In Progress' },
 ];
 
-// Status Dropdown Component
+// Status Dropdown Component - redesigned for forms area
 const StatusDropdown = ({ selectedStatus, onStatusChange }: { selectedStatus: string; onStatusChange: (status: string) => void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const selectedFilter = STATUS_FILTERS.find(f => f.value === selectedStatus) || STATUS_FILTERS[0];
 
   return (
-    <View className="relative">
+    <View className="mb-4">
       <Pressable
-        className="flex-row items-center bg-white/20 px-3 py-2 rounded-lg"
+        className="flex-row items-center justify-between bg-white px-4 py-3 rounded-lg border border-gray-200 shadow-sm"
         onPress={() => setIsOpen(true)}
         accessibilityLabel="Filter by status"
         tabIndex={0}
       >
-        <Text className="text-white font-inter font-medium text-sm mr-2">
-          {selectedFilter.label}
-        </Text>
-        <ChevronDownIcon color="white" size={16} />
+        <View className="flex-row items-center">
+          <Text className="text-gray-600 font-inter font-medium text-sm mr-2">
+            Filter:
+          </Text>
+          <Text className="text-[#FF6551] font-inter font-semibold text-sm">
+            {selectedFilter.label}
+          </Text>
+        </View>
+        <ChevronDownIcon color="#6B7280" size={20} />
       </Pressable>
 
       <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
@@ -616,7 +620,6 @@ const FormsListScreen = () => {
             <CalendarIcon color="white" size={20} />
             <Text className="text-white font-inter font-medium">Annual Leave</Text>
           </Pressable>
-          <StatusDropdown selectedStatus={statusFilter} onStatusChange={setStatusFilter} />
           <Pressable
             className="flex-row items-center gap-2"
             accessibilityLabel="Logout"
@@ -630,6 +633,11 @@ const FormsListScreen = () => {
             <Text className="text-white font-inter font-medium">Logout</Text>
           </Pressable>
         </View>
+      </View>
+
+      {/* Filter Dropdown */}
+      <View className="px-4 pt-4">
+        <StatusDropdown selectedStatus={statusFilter} onStatusChange={setStatusFilter} />
       </View>
 
       {/* Forms List */}
@@ -649,7 +657,7 @@ const FormsListScreen = () => {
         <FlatList
           data={filteredForms}
           keyExtractor={item => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
           renderItem={({ item }) => {
             const isCompleted = item.status === 'completed';
             const cardOpacity = isCompleted ? 0.7 : 1;
