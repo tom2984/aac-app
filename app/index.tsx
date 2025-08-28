@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Image, ImageBackground, Pressable, Text, TextInput, View } from 'react-native';
+import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
 
 const LoginScreen = () => {
@@ -9,6 +10,7 @@ const LoginScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const { loading: authLoading } = useAuth();
   const router = useRouter();
 
   const handleTogglePassword = () => setShowPassword((prev) => !prev);
@@ -29,7 +31,8 @@ const LoginScreen = () => {
       if (error) {
         Alert.alert('Login Error', error.message);
       } else {
-        router.replace('/dashboard');
+        // Navigation will be handled automatically by the auth state change in _layout.tsx
+        // Either to dashboard (regular user) or first-time-login flow (new user)
       }
     } catch (error) {
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
@@ -173,12 +176,12 @@ const LoginScreen = () => {
         {isSignUp && <View className="mb-6 mt-1" />}
         <Pressable
           onPress={isSignUp ? handleSignUp : handleLogin}
-          className={`rounded-full py-3 items-center ${loading ? 'bg-gray-400' : 'bg-[#FF6551]'}`}
+          className={`rounded-full py-3 items-center ${(loading || authLoading) ? 'bg-gray-400' : 'bg-[#FF6551]'}`}
           accessibilityRole="button"
-          disabled={loading}
+          disabled={loading || authLoading}
         >
           <Text className="text-white font-semibold text-base">
-            {loading 
+            {(loading || authLoading)
               ? (isSignUp ? 'Creating Account...' : 'Logging in...') 
               : (isSignUp ? 'Create Account' : 'Log In')
             }
