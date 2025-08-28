@@ -34,7 +34,7 @@ const FirstTimePromptScreen = () => {
         </Text>
 
         <Text className="text-gray-600 text-base text-center leading-6 mb-12">
-          We're excited to have you on board. For your security, would you like to update your password?
+          We&apos;re excited to have you on board. For your security, would you like to update your password?
         </Text>
 
         <View className="w-full max-w-sm space-y-4">

@@ -91,6 +91,7 @@ const SimpleTextInput = React.memo(({ questionId, placeholder, isReadOnly }: {
     />
   );
 });
+SimpleTextInput.displayName = 'SimpleTextInput';
 
 // ADD BACK QUESTION COMPONENT - This might be the culprit!
 const QuestionComponent = React.memo(({ 

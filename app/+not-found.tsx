@@ -16,7 +16,7 @@ export default function NotFoundScreen() {
         Page Not Found
       </Text>
       <Text className="text-base text-gray-600 mb-8 text-center">
-        The page you're looking for doesn't exist.
+        The page you&apos;re looking for doesn&apos;t exist.
       </Text>
       
       <Pressable
