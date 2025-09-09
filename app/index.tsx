@@ -44,20 +44,49 @@ const LoginScreen = () => {
         const userName = urlParams.get('name');
         const userRole = urlParams.get('role');
 
-        console.log('🔍 Onboarding check:', { isNewUser, userEmail, userName, userRole });
+        // Also check localStorage for persisted onboarding data
+        let persistedOnboarding = false;
+        if (typeof window !== 'undefined' && !isNewUser) {
+          const storedIsNewUser = localStorage.getItem('is_new_user');
+          const storedEmail = localStorage.getItem('onboarding_email');
+          const storedName = localStorage.getItem('onboarding_name');
+          
+          if (storedIsNewUser === 'true' && storedEmail) {
+            persistedOnboarding = true;
+            setOnboardingData({
+              isNewUser: true,
+              userEmail: storedEmail,
+              userName: storedName,
+              userRole: 'employee',
+            });
+            setEmail(storedEmail);
+            console.log('🔄 Recovered onboarding data from localStorage:', { storedEmail, storedName });
+          }
+        }
 
-        if (isNewUser) {
-          // Update onboarding data
-          setOnboardingData({
-            isNewUser,
-            userEmail,
-            userName,
-            userRole,
-          });
+        console.log('🔍 Onboarding check:', { isNewUser: isNewUser || persistedOnboarding, userEmail, userName, userRole });
 
-          // Pre-fill email if provided
-          if (userEmail) {
-            setEmail(userEmail);
+        if (isNewUser || persistedOnboarding) {
+          // Update onboarding data (if not already set from localStorage)
+          if (isNewUser) {
+            setOnboardingData({
+              isNewUser,
+              userEmail,
+              userName,
+              userRole,
+            });
+
+            // Store onboarding data in localStorage for persistence
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('onboarding_email', userEmail || '');
+              localStorage.setItem('onboarding_name', userName || '');
+              localStorage.setItem('is_new_user', 'true');
+            }
+
+            // Pre-fill email if provided
+            if (userEmail) {
+              setEmail(userEmail);
+            }
           }
 
           // Check for existing authentication session
@@ -67,11 +96,11 @@ const LoginScreen = () => {
           console.log('🔐 Session check:', { isAuthenticated, userEmail: currentSession?.user?.email });
 
           // Route users based on their state
-          if (isNewUser && isAuthenticated) {
+          if ((isNewUser || persistedOnboarding) && isAuthenticated) {
             // BEST CASE: User is already logged in from website
             console.log('✅ New user already authenticated - showing welcome onboarding');
             setOnboardingFlow('authenticated_welcome');
-          } else if (isNewUser && !isAuthenticated) {
+          } else if ((isNewUser || persistedOnboarding) && !isAuthenticated) {
             // User came from website but session didn't transfer
             console.log('🔑 New user needs to login - showing streamlined login');
             setOnboardingFlow('streamlined_login');
@@ -81,10 +110,12 @@ const LoginScreen = () => {
             setOnboardingFlow('standard');
           }
 
-          // Clean up URL parameters after handling
-          const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-          window.history.replaceState({}, document.title, cleanUrl);
-          console.log('🧹 Cleaned onboarding parameters from URL');
+          // Clean up URL parameters after handling (only if URL had parameters)
+          if (isNewUser) {
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+            console.log('🧹 Cleaned onboarding parameters from URL');
+          }
         }
 
         setHasProcessedOnboarding(true);
@@ -111,6 +142,15 @@ const LoginScreen = () => {
             text: 'Get Started',
             onPress: () => {
               console.log('✅ New user welcomed, redirecting to dashboard');
+              
+              // Clear onboarding data from localStorage
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('onboarding_email');
+                localStorage.removeItem('onboarding_name'); 
+                localStorage.removeItem('is_new_user');
+                console.log('🧹 Cleared onboarding data from localStorage after welcome');
+              }
+              
               router.replace('/dashboard');
             }
           }
@@ -135,6 +175,14 @@ const LoginScreen = () => {
       if (error) {
         Alert.alert('Login Error', error.message);
       } else {
+        // Clear onboarding data from localStorage after successful login
+        if (typeof window !== 'undefined' && onboardingData.isNewUser) {
+          localStorage.removeItem('onboarding_email');
+          localStorage.removeItem('onboarding_name'); 
+          localStorage.removeItem('is_new_user');
+          console.log('🧹 Cleared onboarding data from localStorage after successful login');
+        }
+        
         // Navigation will be handled automatically by the auth state change in _layout.tsx
         // Either to dashboard (regular user) or first-time-login flow (new user)
       }
@@ -219,7 +267,7 @@ const LoginScreen = () => {
             Welcome {onboardingData.userName || 'Back'}!
           </Text>
           <Text className="text-center text-gray-600 mb-8">
-            Please enter your password to continue to your AAC mobile app.
+            Your account has been created! Please enter your password to continue to your AAC mobile app.
           </Text>
           <View className="mb-4">
             <Text className="text-xs text-gray-500 mb-1 ml-1">Email</Text>
@@ -267,6 +315,10 @@ const LoginScreen = () => {
               {(loading || authLoading) ? 'Logging in...' : 'Continue to App'}
             </Text>
           </Pressable>
+          
+          <Text className="text-center text-gray-500 text-sm mt-4">
+            Having trouble? Contact your administrator for assistance.
+          </Text>
         </View>
       );
     }
