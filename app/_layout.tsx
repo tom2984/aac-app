@@ -13,16 +13,21 @@ export default function RootLayout() {
   useEffect(() => {
     if (loading) return; // Don't navigate while loading
 
+    console.log('🔀 Router check - session:', !!session, 'loading:', loading, 'segments:', segments);
+    
     const inAuthGroup = segments[0] === '(auth)';
+    const onLoginPage = segments.length === 0 || segments[0] === ''; // Root path or empty
 
     if (!session) {
       // User not authenticated, redirect to login
-      if (!inAuthGroup) {
+      if (!inAuthGroup && !onLoginPage) {
+        console.log('👤 Not authenticated - redirecting to login');
         router.replace('/');
       }
     } else {
-      // User is authenticated, redirect to dashboard if on auth pages
-      if (inAuthGroup) {
+      // User is authenticated, redirect to dashboard 
+      if (inAuthGroup || onLoginPage) {
+        console.log('✅ Authenticated - redirecting to dashboard');
         router.replace('/dashboard');
       }
     }
