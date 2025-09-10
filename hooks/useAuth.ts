@@ -39,6 +39,7 @@ export const useAuth = () => {
   };
 
   const updateAuthState = async (session: Session | null) => {
+    console.log('🔄 Auth state update - session:', !!session, 'user:', !!session?.user);
     if (session?.user) {
       const profile = await loadUserProfile(session.user);
       
@@ -48,6 +49,7 @@ export const useAuth = () => {
         profile,
         loading: false,
       });
+      console.log('✅ Auth state updated - user authenticated, loading: false');
     } else {
       setAuthState({
         session: null,
@@ -55,6 +57,7 @@ export const useAuth = () => {
         profile: null,
         loading: false,
       });
+      console.log('✅ Auth state updated - no user, loading: false');
     }
   };
 

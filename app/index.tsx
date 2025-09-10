@@ -14,15 +14,20 @@ const LoginScreen = () => {
   const { loading: authLoading } = useAuth();
   const router = useRouter();
 
+  // Debug logging for auth loading state
+  console.log('🔍 Login screen - authLoading:', authLoading, 'loading:', loading);
+
   const handleTogglePassword = () => setShowPassword((prev) => !prev);
 
   
   const handleLogin = async () => {
+    console.log('🔄 Login button pressed');
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in both email and password');
       return;
     }
 
+    console.log('🔐 Attempting login with:', email);
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -30,11 +35,17 @@ const LoginScreen = () => {
         password: password,
       });
 
+      console.log('📊 Login result:', { data, error });
+
       if (error) {
+        console.error('❌ Login error:', error);
         Alert.alert('Login Error', error.message);
+      } else {
+        console.log('✅ Login successful');
       }
       // Navigation will be handled automatically by the auth state change in _layout.tsx
     } catch (error) {
+      console.error('❌ Login exception:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
@@ -164,7 +175,14 @@ const LoginScreen = () => {
         )}
         {isSignUp && <View className="mb-6 mt-1" />}
         <Pressable
-          onPress={isSignUp ? handleSignUp : handleLogin}
+          onPress={() => {
+            console.log('🖱️ Button clicked - isSignUp:', isSignUp, 'loading:', loading, 'authLoading:', authLoading);
+            if (isSignUp) {
+              handleSignUp();
+            } else {
+              handleLogin();
+            }
+          }}
           className={`rounded-full py-3 items-center ${(loading || authLoading) ? 'bg-gray-400' : 'bg-[#FF6551]'}`}
           accessibilityRole="button"
           disabled={loading || authLoading}
