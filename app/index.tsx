@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Alert, Image, ImageBackground, Pressable, Text, TextInput, View } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -11,153 +11,11 @@ const LoginScreen = () => {
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   
-  // Onboarding state
-  const [onboardingData, setOnboardingData] = useState<{
-    isNewUser: boolean;
-    userEmail: string | null;
-    userName: string | null;
-    userRole: string | null;
-  }>({
-    isNewUser: false,
-    userEmail: null,
-    userName: null,
-    userRole: null,
-  });
-  const [onboardingFlow, setOnboardingFlow] = useState<'standard' | 'authenticated_welcome' | 'streamlined_login'>('standard');
-  const [hasProcessedOnboarding, setHasProcessedOnboarding] = useState(false);
-  
-  const { loading: authLoading, session } = useAuth();
+  const { loading: authLoading } = useAuth();
   const router = useRouter();
 
   const handleTogglePassword = () => setShowPassword((prev) => !prev);
 
-  // URL parameter detection and onboarding logic
-  useEffect(() => {
-    const handleOnboarding = async () => {
-      if (hasProcessedOnboarding) return;
-
-      try {
-        // Check URL parameters for new user onboarding
-        const urlParams = new URLSearchParams(window.location.search);
-        const isNewUser = urlParams.get('new_user') === 'true';
-        const userEmail = urlParams.get('email');
-        const userName = urlParams.get('name');
-        const userRole = urlParams.get('role');
-
-        // Also check localStorage for persisted onboarding data
-        let persistedOnboarding = false;
-        if (typeof window !== 'undefined' && !isNewUser) {
-          const storedIsNewUser = localStorage.getItem('is_new_user');
-          const storedEmail = localStorage.getItem('onboarding_email');
-          const storedName = localStorage.getItem('onboarding_name');
-          
-          if (storedIsNewUser === 'true' && storedEmail) {
-            persistedOnboarding = true;
-            setOnboardingData({
-              isNewUser: true,
-              userEmail: storedEmail,
-              userName: storedName,
-              userRole: 'employee',
-            });
-            setEmail(storedEmail);
-            console.log('🔄 Recovered onboarding data from localStorage:', { storedEmail, storedName });
-          }
-        }
-
-        console.log('🔍 Onboarding check:', { isNewUser: isNewUser || persistedOnboarding, userEmail, userName, userRole });
-
-        if (isNewUser || persistedOnboarding) {
-          // Update onboarding data (if not already set from localStorage)
-          if (isNewUser) {
-            setOnboardingData({
-              isNewUser,
-              userEmail,
-              userName,
-              userRole,
-            });
-
-            // Store onboarding data in localStorage for persistence
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('onboarding_email', userEmail || '');
-              localStorage.setItem('onboarding_name', userName || '');
-              localStorage.setItem('is_new_user', 'true');
-            }
-
-            // Pre-fill email if provided
-            if (userEmail) {
-              setEmail(userEmail);
-            }
-          }
-
-          // Check for existing authentication session
-          const { data: { session: currentSession } } = await supabase.auth.getSession();
-          const isAuthenticated = !!currentSession;
-
-          console.log('🔐 Session check:', { isAuthenticated, userEmail: currentSession?.user?.email });
-
-          // Route users based on their state
-          if ((isNewUser || persistedOnboarding) && isAuthenticated) {
-            // BEST CASE: User is already logged in from website
-            console.log('✅ New user already authenticated - showing welcome onboarding');
-            setOnboardingFlow('authenticated_welcome');
-          } else if ((isNewUser || persistedOnboarding) && !isAuthenticated) {
-            // User came from website but session didn't transfer
-            console.log('🔑 New user needs to login - showing streamlined login');
-            setOnboardingFlow('streamlined_login');
-          } else {
-            // Regular user (not from onboarding)
-            console.log('👤 Regular user - showing standard login');
-            setOnboardingFlow('standard');
-          }
-
-          // Clean up URL parameters after handling (only if URL had parameters)
-          if (isNewUser) {
-            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-            window.history.replaceState({}, document.title, cleanUrl);
-            console.log('🧹 Cleaned onboarding parameters from URL');
-          }
-        }
-
-        setHasProcessedOnboarding(true);
-      } catch (error) {
-        console.error('❌ Error processing onboarding:', error);
-        setOnboardingFlow('standard');
-        setHasProcessedOnboarding(true);
-      }
-    };
-
-    handleOnboarding();
-  }, [hasProcessedOnboarding]);
-
-  // Handle authenticated welcome flow
-  useEffect(() => {
-    if (onboardingFlow === 'authenticated_welcome' && session && onboardingData.isNewUser) {
-      // User is already authenticated and this is new user onboarding
-      // Show a brief welcome and then redirect to dashboard
-      Alert.alert(
-        `Welcome ${onboardingData.userName || 'to AAC'}!`,
-        'Your AAC account is ready. You can now complete forms on your mobile device.',
-        [
-          {
-            text: 'Get Started',
-            onPress: () => {
-              console.log('✅ New user welcomed, redirecting to dashboard');
-              
-              // Clear onboarding data from localStorage
-              if (typeof window !== 'undefined') {
-                localStorage.removeItem('onboarding_email');
-                localStorage.removeItem('onboarding_name'); 
-                localStorage.removeItem('is_new_user');
-                console.log('🧹 Cleared onboarding data from localStorage after welcome');
-              }
-              
-              router.replace('/dashboard');
-            }
-          }
-        ]
-      );
-    }
-  }, [onboardingFlow, session, onboardingData, router]);
   
   const handleLogin = async () => {
     if (!email || !password) {
@@ -174,18 +32,8 @@ const LoginScreen = () => {
 
       if (error) {
         Alert.alert('Login Error', error.message);
-      } else {
-        // Clear onboarding data from localStorage after successful login
-        if (typeof window !== 'undefined' && onboardingData.isNewUser) {
-          localStorage.removeItem('onboarding_email');
-          localStorage.removeItem('onboarding_name'); 
-          localStorage.removeItem('is_new_user');
-          console.log('🧹 Cleared onboarding data from localStorage after successful login');
-        }
-        
-        // Navigation will be handled automatically by the auth state change in _layout.tsx
-        // Either to dashboard (regular user) or first-time-login flow (new user)
       }
+      // Navigation will be handled automatically by the auth state change in _layout.tsx
     } catch (error) {
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     } finally {
@@ -258,72 +106,7 @@ const LoginScreen = () => {
     }
   };
 
-  // Render different content based on onboarding flow
-  const renderOnboardingContent = () => {
-    if (onboardingFlow === 'streamlined_login') {
-      return (
-        <View className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 opacity-95">
-          <Text className="text-center text-2xl font-bold text-gray-900 mb-4">
-            Welcome {onboardingData.userName || 'Back'}!
-          </Text>
-          <Text className="text-center text-gray-600 mb-8">
-            Your account has been created! Please enter your password to continue to your AAC mobile app.
-          </Text>
-          <View className="mb-4">
-            <Text className="text-xs text-gray-500 mb-1 ml-1">Email</Text>
-            <TextInput
-              className="border border-gray-200 rounded-lg px-4 py-4 bg-gray-100 text-base text-gray-900 min-h-[52px]"
-              value={email}
-              editable={false}
-              accessibilityLabel="Email (read-only)"
-              textAlignVertical="center"
-            />
-          </View>
-          <View className="mb-6">
-            <Text className="text-xs text-gray-500 mb-1 ml-1">Password</Text>
-            <View className="flex-row items-center border border-gray-200 rounded-lg bg-gray-50 px-4 min-h-[52px]">
-              <TextInput
-                className="flex-1 py-4 text-base text-gray-900"
-                placeholder="Enter your password"
-                placeholderTextColor="#A3A3A3"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                accessibilityLabel="Password"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-                textAlignVertical="center"
-                autoFocus={true}
-              />
-              <Pressable
-                onPress={handleTogglePassword}
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                className="ml-2 p-1"
-              >
-                <Text className="text-xs text-gray-400">{showPassword ? 'Hide' : 'Show'}</Text>
-              </Pressable>
-            </View>
-          </View>
-          <Pressable
-            onPress={handleLogin}
-            className={`rounded-full py-3 items-center ${(loading || authLoading) ? 'bg-gray-400' : 'bg-[#FF6551]'}`}
-            accessibilityRole="button"
-            disabled={loading || authLoading}
-          >
-            <Text className="text-white font-semibold text-base">
-              {(loading || authLoading) ? 'Logging in...' : 'Continue to App'}
-            </Text>
-          </Pressable>
-          
-          <Text className="text-center text-gray-500 text-sm mt-4">
-            Having trouble? Contact your administrator for assistance.
-          </Text>
-        </View>
-      );
-    }
-
-    // Standard login form (default)
+  const renderLoginForm = () => {
     return (
       <View className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 opacity-95">
         <Text className="text-center text-2xl font-bold text-gray-900 mb-8">
@@ -425,7 +208,7 @@ const LoginScreen = () => {
         style={{ width: 96, height: 96, resizeMode: 'contain' }}
         accessibilityLabel="AAC Logo"
       />
-      {renderOnboardingContent()}
+      {renderLoginForm()}
     </ImageBackground>
   );
 };

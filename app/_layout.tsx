@@ -6,15 +6,14 @@ import '../global.css'; // this path is correct because global.css is one level 
 import { useAuth } from '../hooks/useAuth';
 
 export default function RootLayout() {
-  const { session, loading, isFirstTimeLogin } = useAuth();
+  const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
     if (loading) return; // Don't navigate while loading
 
-    const inAuthGroup = segments[0] === '(auth)' || segments[0] === 'first-time-login';
-    const inFirstTimeGroup = segments[0] === 'first-time-login';
+    const inAuthGroup = segments[0] === '(auth)';
 
     if (!session) {
       // User not authenticated, redirect to login
@@ -22,20 +21,12 @@ export default function RootLayout() {
         router.replace('/');
       }
     } else {
-      // User is authenticated
-      if (isFirstTimeLogin) {
-        // First time login, redirect to first-time flow
-        if (!inFirstTimeGroup) {
-          router.replace('/first-time-login/prompt');
-        }
-      } else {
-        // Regular authenticated user, redirect to dashboard if on auth pages
-        if (inAuthGroup || inFirstTimeGroup) {
-          router.replace('/dashboard');
-        }
+      // User is authenticated, redirect to dashboard if on auth pages
+      if (inAuthGroup) {
+        router.replace('/dashboard');
       }
     }
-  }, [session, loading, isFirstTimeLogin, segments]);
+  }, [session, loading, segments]);
 
   return (
     <>
